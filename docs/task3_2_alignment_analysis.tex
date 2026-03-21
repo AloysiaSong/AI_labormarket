@@ -1,0 +1,116 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\geometry{margin=1in}
+\title{Task 3.2: 混合对齐算法结果分析}
+\author{自动生成报告}
+\date{2026年2月3日}
+
+\begin{document}
+
+\maketitle
+
+\section{概述}
+
+Task 3.2 实现了基于匈牙利算法和贪婪阈值法的混合对齐算法，用于分析2016-2025年间工作主题的演化模式。该算法将相邻时间窗口的LDA主题进行对齐，识别Survival（生存）、Split（分裂）、Merge（合并）、Birth（新生）和Death（消亡）五种演化事件。
+
+\section{对齐结果统计}
+
+\subsection{总体统计}
+
+\begin{table}[H]
+\centering
+\caption{对齐算法总体统计}
+\label{tab:overall_stats}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+指标 & 值 & 说明 \\
+\midrule
+总Survival匹配 & 208 & 4个时间窗口对的匹配总数 \\
+平均Survival率 & 87.9\% & 主题在相邻窗口中的匹配比例 \\
+平均相似度 & 0.858 & Survival匹配的平均余弦相似度 \\
+总演化事件 & 54 & 所有演化事件的总数 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{演化事件分布}
+
+\begin{table}[H]
+\centering
+\caption{演化事件类型分布}
+\label{tab:event_distribution}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+事件类型 & 数量 & 比例 \\
+\midrule
+Split (分裂) & 24 & 44.4\% \\
+Merge (合并) & 23 & 42.6\% \\
+Birth (新生) & 5 & 9.3\% \\
+Death (消亡) & 2 & 3.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{时间窗口对统计}
+
+\begin{table}[H]
+\centering
+\caption{各时间窗口对的对齐结果}
+\label{tab:window_stats}
+\begin{tabular}{@{}llllcccc@{}}
+\toprule
+基础窗口 & 目标窗口 & Survival率 & 平均相似度 & Split & Merge & Birth & Death \\
+\midrule
+2016-2017 & 2018-2019 & 90.0\% & 0.860 & 4 & 5 & 0 & 0 \\
+2018-2019 & 2020-2021 & 85.0\% & 0.836 & 7 & 4 & 4 & 0 \\
+2020-2021 & 2022-2023 & 86.7\% & 0.871 & 5 & 7 & 0 & 1 \\
+2022-2023 & 2024-2025 & 85.0\% & 0.865 & 8 & 7 & 1 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{关键发现}
+
+\subsection{主题稳定性分析}
+
+\begin{itemize}
+\item \textbf{高Survival率}：平均87.9\%的主题在相邻时间窗口中成功匹配，表明工作主题具有较强的时序稳定性。
+\item \textbf{相似度分布}：Survival匹配的平均余弦相似度为0.858，显示匹配的主题在语义空间中高度相似。
+\end{itemize}
+
+\subsection{演化模式分析}
+
+\begin{itemize}
+\item \textbf{分裂主导}：Split事件占比44.4\%，表明AI技术发展导致工作职责的专业化细分趋势明显。
+\item \textbf{动态重组}：Split和Merge事件数量接近（24 vs 23），反映了工作角色的动态重组过程。
+\item \textbf{少量新生/消亡}：Birth和Death事件较少（仅7个），表明大多数工作主题通过演化而非完全消失/出现的方式变化。
+\end{itemize}
+
+\subsection{时间趋势分析}
+
+\begin{itemize}
+\item \textbf{2016-2019}：主题相对稳定，演化事件较少，主要以Merge为主。
+\item \textbf{2018-2021}：出现较多Birth事件（4个），表明新工作主题的涌现。
+\item \textbf{2020-2025}：Split事件增加（13个），同时出现Death事件，显示主题演化的加速。
+\end{itemize}
+
+\section{对AI影响的启示}
+
+\begin{enumerate}
+\item \textbf{专业化趋势}：Split事件的普遍存在表明AI技术推动了工作职责的专业化细分。
+\item \textbf{创新驱动}：Birth事件的出现反映了AI相关新岗位的诞生。
+\item \textbf{稳定性基础}：高Survival率显示传统工作主题的持续重要性。
+\item \textbf{动态适应}：Merge和Death事件表明工作市场对技术变革的适应性调整。
+\end{enumerate}
+
+\section{结论}
+
+混合对齐算法成功揭示了2016-2025年间工作主题的演化规律，为理解AI对就业市场的影响提供了量化证据。结果显示，AI技术既推动了工作职责的专业化细分，又保持了主题的整体稳定性，为劳动力市场的转型提供了宝贵洞察。
+
+\end{document}

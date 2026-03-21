@@ -1,0 +1,104 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\title{\textbf{Task 2.3: 主题合并与去冗余技术报告}}
+\date{2026年2月4日}
+
+\begin{document}
+
+\maketitle
+
+\section{任务概述}
+
+Task 2.3在LDA主题训练之后、跨期对齐之前引入“主题合并”步骤，用于合并高相似度主题、减少冗余与噪音主题，提升后续对齐的稳定性与可解释性。本任务基于主题向量的余弦相似度进行聚类，并输出合并后的主题向量与映射关系。
+
+\section{方法与算法}
+
+\subsection{相似度计算}
+
+对每个时间窗口的主题向量矩阵 $\mathbf{V}\in\mathbb{R}^{K\times d}$，计算主题间余弦相似度：
+
+\begin{equation}
+\text{sim}(i,j)=\cos(\mathbf{v}_i,\mathbf{v}_j)=\frac{\mathbf{v}_i\cdot\mathbf{v}_j}{\|\mathbf{v}_i\|_2\,\|\mathbf{v}_j\|_2}
+\end{equation}
+
+\subsection{合并策略}
+
+采用基于阈值的贪婪合并策略：
+\begin{itemize}
+    \item 相似度阈值：0.75
+    \item 单簇最大主题数：5
+    \item 每窗口最小主题数：20
+\end{itemize}
+
+当两个主题相似度高于阈值且合并后簇大小不超过限制时，执行合并。合并后的主题向量为簇内向量均值，并进行L2归一化。
+
+\section{参数配置}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{参数} & \textbf{值} \\
+\midrule
+相似度阈值 (similarity\_threshold) & 0.75 \\
+最小主题数 (min\_topics\_per\_window) & 20 \\
+最大簇大小 (max\_cluster\_size) & 5 \\
+相似度度量 & 余弦相似度 \\
+\bottomrule
+\end{tabular}
+\caption{主题合并超参数配置}
+\end{table}
+
+\section{合并结果汇总}
+
+\subsection{各窗口合并统计}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{时间窗口} & \textbf{原始主题数} & \textbf{合并后主题数} & \textbf{减少率} & \textbf{簇数} \\
+\midrule
+2016--2017 & 60 & 46 & 23.33\% & 46 \\
+2018--2019 & 60 & 50 & 16.67\% & 50 \\
+2020--2021 & 60 & 52 & 13.33\% & 52 \\
+2022--2023 & 60 & 53 & 11.67\% & 53 \\
+2024--2025 & 60 & 55 & 8.33\% & 55 \\
+\midrule
+\textbf{合计} & 300 & 256 & \textbf{14.67\%} & 256 \\
+\bottomrule
+\end{tabular}
+\caption{主题合并结果统计}
+\end{table}
+
+\subsection{关键观察}
+
+\begin{itemize}
+    \item 合并力度随时间窗口递增而降低，可能反映后期主题结构更清晰。
+    \item 总体主题数从300降至256（减少44个），降低了约14.67\%的冗余。
+    \item 合并后主题数仍显著高于最小阈值20，保留足够细粒度。
+\end{itemize}
+
+\section{输出文件}
+
+\begin{itemize}
+    \item \texttt{output/lda/merged\_topic\_vectors/window\_*\_merged\_vectors.npy}：合并后的主题向量
+    \item \texttt{output/lda/merged\_topic\_vectors/window\_*\_cluster\_info.pkl}：簇信息与映射关系
+    \item \texttt{output/lda/merged\_topic\_vectors/window\_*\_merged\_labels.pkl}：合并后主题标签
+    \item \texttt{output/lda/topic\_merge\_report.csv}：合并统计报告
+    \item \texttt{output/lda/topic\_merge\_mapping.pkl}：全局主题映射
+\end{itemize}
+
+\section{结论}
+
+Task 2.3通过基于主题向量的相似度合并，有效减少冗余主题并保持语义结构完整，为后续的跨窗口对齐（Task 3.2）提供更稳定的主题集合。总体减少率14.67\%，表明合并策略在降噪与保真之间取得了较好的平衡。
+
+\end{document}

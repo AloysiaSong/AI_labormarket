@@ -1,0 +1,711 @@
+%% report_v2.tex
+%% 中国劳动力市场岗位综合化趋势研究：DID因果识别报告
+%% 更新：2026-02-20
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{threeparttable}
+\usepackage{caption}
+\usepackage{ragged2e}
+\geometry{margin=2.5cm}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\newcommand{\std}[1]{\textcolor{gray}{\small(#1)}}
+\newcommand{\sig}[1]{\textcolor{blue}{#1}}
+
+\title{\textbf{AI暴露与岗位技能综合化：\\来自中国招聘市场的差中差证据}\\[0.5em]
+\large 研究报告 v2（含DID设计全套规格）}
+\author{}
+\date{2026年2月20日}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%% ============================================================
+\section{研究目的}
+%% ============================================================
+
+\subsection{核心研究问题}
+
+本研究以2016--2024年中国大型招聘平台的招聘广告为数据基础，
+检验以下假说：
+
+\begin{quote}
+\textbf{假说H}：在生成式AI（大语言模型）规模化落地后，
+高AI暴露职业的岗位技能需求变得更加综合化，
+即单一岗位同时要求多个任务领域能力的趋势在AI冲击后显著加速。
+\end{quote}
+
+\subsection{理论动机}
+
+生成式AI对劳动力市场的影响在理论上存在两条截然相反的预测。
+
+\textbf{任务替代路径}（Acemoglu \& Restrepo, 2018; Eloundou et al., 2024）：
+AI自动化重复性、可编码化任务，使高AI暴露岗位的技能需求变窄、专业化程度上升。
+如果这一路径主导，应观察到高AI暴露岗位的Entropy下降。
+
+\textbf{任务互补路径}（Autor, 2015; Brynjolfsson \& Mitchell, 2017）：
+AI承担常规化任务后，人类劳动力被推向高价值的非常规跨领域任务，
+企业倾向于将多个原本独立岗位的职责合并给"人机协同复合型人才"，
+形成岗位综合化需求。如果这一路径主导，应观察到高AI暴露岗位的Entropy上升。
+
+中国情境提供了一个天然的准实验：
+以文心一言（2023年3月）、讯飞星火、通义千问、Kimi等大语言模型密集落地为处理事件
+（$\text{Post} = \mathbf{1}[t \geq 2023]$），
+采用差中差设计（DID）识别AI暴露梯度对岗位综合化指数的因果效应。
+
+\subsection{与现有文献的关系}
+
+现有文献（Autor et al., 2022; Acemoglu et al., 2022; Felten et al., 2023）
+多以美国/欧洲劳动力市场为分析对象，
+缺乏对中国大模型冲击的时间序列证据。
+本研究的边际贡献在于：
+（1）使用778万条岗位级微观数据；
+（2）采用基于LDA的岗位技能综合化指数（SCI）作为连续结果变量；
+（3）将ILO WP140（Gmyrek et al., 2025）的职业级AI暴露梯度
+通过岗位名称关键词映射至中国岗位，
+构建处理组/控制组划分；
+（4）在前四个平行趋势检验年份（2016--2022）
+均支持平行趋势假定的条件下进行DID推断。
+
+%% ============================================================
+\section{研究方法}
+%% ============================================================
+
+\subsection{数据来源与样本}
+
+\subsubsection{招聘广告数据}
+
+数据来源于某国内大型招聘平台的岗位广告文本数据库，
+时间范围2016--2025年，经去重、文本清洗后，
+共生成有效岗位记录\textbf{7,794,684条}。
+
+\begin{table}[H]
+\centering
+\caption{样本年度分布（全样本与分析样本）}
+\begin{threeparttable}
+\begin{tabular}{lrrr}
+\toprule
+年份 & 全样本（LDA推断） & 分析样本（进入DID） & 备注 \\
+\midrule
+2016 & 487,053 & 215,838 & 主样本 \\
+2017 & 872,174 & 399,854 & 主样本 \\
+2018 & 418,534 & 199,636 & 主样本 \\
+2019 & 17,372  & ---     & 剔除$^\dagger$ \\
+2020 & 1,352   & ---     & 剔除$^\dagger$ \\
+2021 & 1,236,730 & 578,507 & 主样本 \\
+2022 & 2,323,799 & 1,054,648 & 参照年 \\
+2023 & 1,243,166 & 565,443 & 处理后 \\
+2024 & 1,173,246 & 481,764 & 处理后 \\
+2025 & 21,258   & 12,629$^*$ & 处理后$^*$ \\
+\midrule
+\textbf{合计} & \textbf{7,794,684} & \textbf{3,508,319} & \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\small
+\item[$\dagger$] 2019年（样本量17,372条，为邻近年份的1/25）来源于网络归档恢复，
+存在选择性覆盖偏差，Entropy均值（0.297）异常偏低；
+2020年（样本量1,352条）受新冠疫情期间招聘停滞影响极为稀疏。
+两年均从DID主规格中剔除，在附录敏感性检验中恢复。
+\item[$*$] 2025年处理组样本量仅3,597条，系截至数据截止日（2025年初）尚不完整，
+该年度DID估计不稳健，以虚线呈现于事件研究图中。
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsubsection{文本预处理}
+
+对每条记录的岗位要求文本（\texttt{cleaned\_requirements}）执行以下流程：
+（1）jieba分词；
+（2）去除停用词、纯数字词元；
+（3）要求通过jieba最低词元数过滤（$\text{MIN\_TOKENS} = 5$）；
+（4）要求至少5个词元在LDA词汇表中（二次过滤，确保ID分配与LDA推断完全对齐）。
+记录有效词元数为 $\text{token\_count}_{it}$，
+均值约 $\overline{\text{TC}} \approx 24$，
+纳入回归规格二（Spec~2）作为文本长度控制变量。
+
+\subsection{岗位技能综合化指数（SCI）}
+
+\subsubsection{LDA主题模型}
+
+使用 \texttt{tomotopy} 库训练全局LDA模型，
+超参数设置：$K = 50$（主题数），$\text{min\_cf} = 10$，$\text{rm\_top} = 15$，
+训练语料为全部 7,794,684 条记录的合并词元序列。
+模型为每条记录 $i$ 推断其\textbf{主题分布} $\boldsymbol{\theta}_i \in \Delta^{49}$，
+即在 $K=50$ 个主题上的概率向量，满足 $\sum_{k=1}^{50} \theta_{ik} = 1$，$\theta_{ik} \geq 0$。
+
+\subsubsection{技能综合化指数定义}
+
+定义\textbf{归一化香农熵}（Normalized Shannon Entropy）为主要结果变量：
+
+\begin{equation}
+\label{eq:entropy}
+\text{SCI}_i = \frac{H(\boldsymbol{\theta}_i)}{\log K} = \frac{-\sum_{k=1}^{K} \theta_{ik} \log \theta_{ik}}{\log 50}
+\end{equation}
+
+其中 $\text{SCI}_i \in [0, 1]$。
+$\text{SCI}_i = 0$ 表示单主题完全专业化；$\text{SCI}_i = 1$ 表示 50 个主题均匀分布（极度综合化）。
+
+辅助指标定义赫芬达尔--赫希曼指数（HHI）：
+
+\begin{equation}
+\text{HHI}_i = \sum_{k=1}^{K} \theta_{ik}^2
+\end{equation}
+
+HHI 越高表示越专业化，与 SCI 方向相反，作为稳健性检验备选结果变量（Spec~3 使用 $-\text{HHI}$）。
+
+\subsubsection{词汇熵辅助指标}
+
+作为LDA指标的无模型参照，对每条记录同时计算：
+\textbf{唯一词元数}（$\text{UniqueTokens}_{it}$）——即词汇广度指标：
+
+\begin{equation}
+\text{UniqueTokens}_{it} = \bigl|\{w : w \in \text{tokens}_{it}\}\bigr|
+\end{equation}
+
+$\log(\text{UniqueTokens}_{it})$ 作为 Spec~4 的结果变量，检验LDA熵增量
+是否可以被词汇广度变化所解释。
+
+\textbf{提前预告结果}：Spec~4 的 DID 系数为零（$\beta = 0.0014$，$p = 0.747$），
+提示岗位综合化上升发生在主题组合层面，而非原始词汇多样性层面，
+与LDA捕获的是"技能领域的混合模式"这一解释一致。
+
+\subsection{AI暴露梯度赋值}
+
+\subsubsection{来源框架}
+
+参照 Gmyrek et al.\ (2025) ILO Working Paper 140 的生成式AI职业暴露指数。
+该框架对 ISCO-08 四位码职业（共 436 个）基于任务自动化可行性打分，
+汇总为职业级AI暴露均值 $\mu_j$ 和标准差 $\sigma_j$，
+并据此定义四级暴露梯度：
+
+\begin{table}[H]
+\centering
+\caption{ILO WP140 AI暴露梯度定义（Table 5）}
+\begin{tabular}{llll}
+\toprule
+梯度标签 & 条件 & 经济含义 & 本研究归属 \\
+\midrule
+Gradient 4 & $\mu \geq 0.6$ 且 $\mu - \sigma \geq 0.5$ & 高暴露，任务间一致性高 & \textbf{处理组} \\
+Gradient 3 & $0.5 \leq \mu < 0.6$ 且 $\mu + \sigma \geq 0.5$ & 显著暴露，任务间差异较大 & \textbf{处理组} \\
+Gradient 2 & $0.4 \leq \mu < 0.5$ 且 $\mu + \sigma \geq 0.5$ & 中等暴露 & （剔除） \\
+Gradient 1 & $\mu < 0.4$ 且 $\mu + \sigma \geq 0.5$ & 低暴露，部分任务高暴露 & （剔除） \\
+Minimal Exp. & $\mu < 0.5$ 且 $\mu + \sigma > 0.4$ & 极低暴露 & \textbf{控制组} \\
+Not Exposed & 其余 & 几乎无AI暴露 & \textbf{控制组} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{说明}：Gradient~1、2（中等暴露）从主样本中剔除，
+以保持处理组与控制组的内在同质性，减少模糊中间组的干扰。
+DID 主样本含处理组 1,927,189 条（54.9\%）、控制组 1,581,130 条（45.1\%）。
+
+\subsubsection{ISCO-08 映射方法}
+
+ILO 指数定义于 ISCO-08 四位码，
+而本数据仅有中文岗位名称，无标准职业代码。
+映射流程如下：
+\begin{enumerate}[label=(\arabic*)]
+    \item 构建"关键词 $\to$ ISCO-08 四位码"的规则词典（约 200 条规则），
+    规则来源包括 ISCO-08 中文版描述及任务内容对照；
+    \item 对每条记录的岗位名称按规则匹配；
+    \item 匹配成功（\texttt{keyword}）：5,413,851 条（69.5\%）；
+    \item 关键词命中但 ISCO 无对应暴露数据（\texttt{keyword\_noilo}）：13,538 条（0.2\%）；
+    \item 无法匹配（\texttt{unknown}）：2,367,295 条（30.4\%）。
+\end{enumerate}
+
+\textbf{局限性（重要）}：
+30.4\% 的记录因岗位名称不够标准化而无法匹配 ISCO-08，
+直接剔除该部分记录会引入样本选择偏差——
+若模糊岗位名称集中于某类AI暴露程度的职业，处理效应估计将出现系统偏差。
+本研究未对此进行充分的样本选择纠正，建议后续引入 BERT 语义匹配或
+多重插补（MI）方法加以改进。
+
+此外，ILO WP140 的评分基于 O*NET（美国劳动力市场任务结构），
+直接套用于中国劳动力市场存在任务构成不可比的内在风险。
+
+\subsection{差中差估计设计}
+
+\subsubsection{基准识别方程}
+
+\textbf{处理组}：Gradient~3 或 Gradient~4（高AI暴露，$\mu \geq 0.5$）。\\
+\textbf{控制组}：Minimal Exposure 或 Not Exposed（低AI暴露）。\\
+\textbf{处理时点}：$\text{Post}_t = \mathbf{1}[t \geq 2023]$
+（以文心一言/Kimi/通义千问密集落地年为分界）。
+
+\paragraph{规格一（Spec~1）：加权单元级DID（WLS）}
+
+将样本聚合至（年份 $\times$ AI暴露梯度）单元，
+以各单元样本量 $n_{gt}$ 为权重，运行单元级WLS：
+
+\begin{equation}
+\label{eq:cell_did}
+\overline{\text{SCI}}_{gt} = \alpha + \beta \cdot \underbrace{(\text{Post}_t \times \text{Treated}_g)}_{\text{DID}} + \boldsymbol{\lambda}_t + \boldsymbol{\mu}_g + \varepsilon_{gt}
+\end{equation}
+
+其中 $\boldsymbol{\lambda}_t$ 为年份固定效应（8个哑变量），$\boldsymbol{\mu}_g$ 为梯度固定效应（4组）。
+\textbf{注意}：$\text{Post}_t$ 与年份 FE 完全共线，$\text{Treated}_g$ 与梯度 FE 完全共线，
+因此方程中仅含交互项 $\text{DID} = \text{Post}_t \times \text{Treated}_g$，
+标准误采用 HC3 异方差稳健估计。
+共有 $8 \times 4 = 32$ 个单元（参照年 2022）。
+
+\paragraph{规格二至四（Spec~2--4）：控制变量与替代因变量}
+
+\begin{itemize}
+    \item \textbf{Spec~2}：在上式（Spec~1基准方程）中加入 $\log(\overline{\text{TC}}_{gt})$（单元平均词元数对数），
+    控制招聘广告文本长度对 SCI 的机械推高效应。
+    \item \textbf{Spec~3}：将因变量替换为 $-\overline{\text{HHI}}_{gt}$，
+    以集中度下降（方向与 SCI 上升一致）作为稳健性检验。
+    \item \textbf{Spec~4}：将因变量替换为 $\log(\overline{\text{UniqueTokens}}_{gt})$，
+    验证词汇多样性是否与 SCI 同步变化。
+\end{itemize}
+
+\paragraph{规格五（Spec~5）：个体双向固定效应（TWFE）}
+
+使用 \texttt{linearmodels.AbsorbingLS} 对50万随机样本运行岗位级TWFE：
+
+\begin{equation}
+\label{eq:twfe}
+\text{SCI}_{it} = \beta \cdot \text{DID}_{it} + \alpha_t + \mu_g + \varepsilon_{it}
+\end{equation}
+
+年份FE（$\alpha_t$）与梯度FE（$\mu_g$）通过吸收算法消除，
+标准误按年份聚类（8个年份簇）。
+
+\paragraph{规格六（事件研究）：平行趋势检验}
+
+以 2022 年为参照年，构建年份×处理组交互项，检验处理前平行趋势：
+
+\begin{equation}
+\label{eq:event}
+\overline{\text{SCI}}_{gt} = \sum_{t \neq 2022} \gamma_t \cdot \mathbf{1}[t] \times \text{Treated}_g
++ \boldsymbol{\lambda}_t + \boldsymbol{\mu}_g + \varepsilon_{gt}
+\end{equation}
+
+若 $\hat{\gamma}_t \approx 0$ 对所有 $t < 2022$ 成立，则平行趋势假定得到支持。
+
+%% ============================================================
+\section{研究结果}
+%% ============================================================
+
+\subsection{总体趋势：处理组与控制组单元均值}
+
+下表报告分析样本（剔除2019、2020年后）各年度处理组与控制组的
+加权平均SCI及组间差距。
+
+\begin{table}[H]
+\centering
+\caption{处理组 vs.\ 控制组年度平均SCI（分析样本，N=3,508,319）}
+\begin{threeparttable}
+\begin{tabular}{lrrrrrr}
+\toprule
+年份 & 处理组SCI & 控制组SCI & 组间差 & $n_{\text{treat}}$ & $n_{\text{ctrl}}$ & 标记 \\
+\midrule
+2016 & 0.3927 & 0.3940 & $-$0.0014 & 160,381 & 55,457 & \\
+2017 & 0.3947 & 0.3948 & $-$0.0000 & 282,358 & 117,496 & \\
+2018 & 0.3927 & 0.3921 & $+$0.0005 & 137,288 & 62,348 & \\
+2021 & 0.4210 & 0.4206 & $+$0.0004 & 332,955 & 245,552 & \\
+\textbf{2022} & \textbf{0.4262} & \textbf{0.4258} & $+$\textbf{0.0003} & \textbf{579,685} & \textbf{474,963} & 参照年 \\
+2023 & 0.4278 & 0.4270 & $+$0.0009 & 310,868 & 254,575 & * \\
+2024 & 0.4340 & 0.4322 & $+$0.0019 & 252,291 & 229,473 & * \\
+2025 & 0.4671 & 0.4642 & $+$0.0029 & 3,597 & 9,032 & *$^\dagger$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\small
+\item[*] 处理后年份（Post = 1）。
+\item[$\dagger$] 2025年处理组样本量极小（$n=3{,}597$），估计值不稳健。
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\textbf{描述性观察}：
+处理前（2016--2022），组间差在 $[-0.0014, +0.0005]$ 区间内波动，
+数量级接近零，方向不一致，无明显系统性偏离。
+处理后（2023--2024），组间差单调上升：
+2023年+0.0009，2024年+0.0019。
+DID估计的识别来源正是这一"处理后差距扩大"的加速现象。
+
+\textbf{需要注意的是}：
+整体趋势中，处理组和控制组SCI同时上升（如2016年均约0.393，2024年均约0.433），
+提示存在一个共同的时间趋势（可能是招聘广告字数增加、标准化写作规范扩散等），
+年份固定效应专门控制该共同趋势。
+DID估计量仅捕捉高AI暴露组相对于低AI暴露组的\textbf{额外加速}部分。
+
+\subsection{DID估计结果}
+
+\begin{table}[H]
+\centering
+\caption{DID主结果与稳健性检验（各规格$\hat{\beta}_{\text{DID}}$）}
+\begin{threeparttable}
+\begin{tabular}{llcccc}
+\toprule
+规格 & 因变量 & $\hat{\beta}$ & 标准误 & $z$/$t$统计量 & $p$值 \\
+\midrule
+Spec~1（基准） & SCI（Entropy） & 0.0012 & 0.0010 & 1.255 & 0.209 \\
+Spec~2（+字数控制） & SCI（Entropy） & \textbf{0.0008} & 0.0006 & 1.433 & 0.152 \\
+Spec~3（稳健性--HHI） & $-$HHI & 0.0013 & 0.0012 & 1.091 & 0.275 \\
+Spec~4（词汇稳健性） & $\log(\text{UniqueTokens})$ & 0.0014 & 0.0043 & 0.323 & 0.747 \\
+Spec~5（TWFE，N=500k） & SCI（Entropy） & \textbf{0.0014}$^{**}$ & 0.0006 & 2.313 & \textbf{0.021} \\
+\midrule
+\multicolumn{6}{l}{\textit{Spec~1--4：32单元WLS，HC3稳健标准误；Spec~5：岗位级TWFE，年份聚类标准误}} \\
+\multicolumn{6}{l}{\textit{所有规格均控制年份固定效应和AI暴露梯度固定效应}} \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\small
+\item[$**$] $p < 0.05$。
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\subsubsection{主要结果解读}
+
+\paragraph{效应方向一致，但量级偏小}
+所有规格的 $\hat{\beta}_{\text{DID}}$ 均为正值（$0.0008$--$0.0014$），
+与假说H的方向一致。
+以Spec~1基准估计量为例，$\hat{\beta} = 0.0012$ 对应的含义是：
+在控制共同年份趋势和梯度固定效应后，
+高AI暴露职业在2023年后的SCI相对于控制组每年额外上升约0.0012单位，
+相当于SCI基准值（0.425）的0.28\%。
+这是一个统计上弱显著、经济意义上偏小的效应。
+
+\paragraph{文本长度控制使系数衰减至0.0008}
+在Spec~2中加入 $\log(\text{TokenCount})$ 后，$\hat{\beta}$ 从0.0012降至0.0008，
+且回归中 $\hat{\gamma}_{\log\text{TC}} = 0.231$（$p = 0.001$），
+说明：（1）岗位描述字数对SCI有显著正效应，
+即更长的招聘广告在机械上分散主题概率质量，提高Shannon熵；
+（2）高AI暴露岗位在2023年后招聘广告字数有所增加，
+部分SCI上升可以被文本膨胀解释。
+这是一个\textbf{重要的分解结果}：
+SCI上升中约1/3（$\frac{0.0012 - 0.0008}{0.0012} \approx 33\%$）
+可归因于广告字数增加，
+其余2/3可能反映了真实的技能需求结构变化。
+
+\paragraph{词汇广度无DID效应（Spec~4）}
+以 $\log(\text{UniqueTokens})$ 为结果变量时，$\hat{\beta} = 0.0014$，$p = 0.747$，
+在统计和经济意义上均为零。
+这意味着：高AI暴露岗位在2023年后的词汇种类并未相对增加，
+综合化趋势体现在\textbf{LDA主题组合多样化}层面，
+而非原始词汇多样性层面——招聘广告通过混合不同语义主题（技术/管理/沟通等）
+而非引入更多新词来表达综合化需求。
+
+\paragraph{个体级TWFE统计显著（Spec~5）}
+基于50万岗位随机样本的TWFE估计（$\hat{\beta} = 0.0014$，$p = 0.021$）
+达到5\%显著性水平。
+单元级WLS（Spec~1）未能达到显著的根本原因是功效不足：
+32个单元、8个年份聚类，在小样本标准误下对如此微小的效应量难以形成有效检验。
+TWFE通过利用个体异质性获得大幅功效提升，
+但需注意该规格使用随机抽样（500k/3.5M = 14.3\%），
+点估计的精度受到限制；全样本运行受内存限制未能完成。
+
+\subsubsection{效应量的经济意义评估}
+
+此处坦诚讨论效应量的大小。
+$\hat{\beta}_{\text{DID}} \approx 0.0012$，
+以SCI的样本标准差约 $0.23$（由LDA分布分散程度决定）计算，
+标准化效应量约为 $0.0012 / 0.23 \approx 0.005$（Cohen's $d$ 尺度）。
+这是一个非常小的效应量。
+
+可能的解释如下：
+\begin{enumerate}[label=(\arabic*)]
+    \item \textbf{信号稀释}：AI冲击始于2023年，数据截至2024年底，
+    观察窗口（2年）尚短，劳动力市场结构调整往往滞后于技术落地3--5年；
+    \item \textbf{测量噪声}：ILO WP140 的暴露梯度基于美国任务结构（O*NET），
+    可能低估或误判中国岗位的实际AI暴露程度；
+    \item \textbf{30\%匹配缺失}：未能匹配 ISCO-08 的岗位（约30.4\%）
+    被从样本中排除，若该部分集中于受AI冲击最大的新型岗位，
+    则真实效应可能被低估；
+    \item \textbf{竞争机制抵消}：任务替代与任务互补两种力量可能同时存在，
+    相互抵消后净效应偏小。
+\end{enumerate}
+
+\textbf{结论}：在现有识别策略和数据覆盖下，
+DID估计提供了方向一致的证据支持假说H，
+但效应量的经济意义较弱，需审慎解读，
+不宜过度主张AI冲击对岗位综合化有强烈的因果推动作用。
+
+\subsection{事件研究：平行趋势检验}
+
+\begin{table}[H]
+\centering
+\caption{事件研究系数 $\hat{\gamma}_t$（参照年=2022）}
+\begin{threeparttable}
+\begin{tabular}{lrrrrl}
+\toprule
+年份 & $\hat{\gamma}_t$ & 95\% CI 下界 & 95\% CI 上界 & $p$值 & 阶段 \\
+\midrule
+2016 & $-$0.0017 & $-$0.0047 & $+$0.0013 & 0.263 & 处理前 \\
+2017 & $-$0.0003 & $-$0.0041 & $+$0.0034 & 0.857 & 处理前 \\
+2018 & $+$0.0003 & $-$0.0060 & $+$0.0065 & 0.929 & 处理前 \\
+2021 & $+$0.0000 & $-$0.0031 & $+$0.0031 & 0.987 & 处理前 \\
+\textbf{2022} & \textbf{0} & \textbf{0} & \textbf{0} & --- & \textbf{参照} \\
+2023 & $+$0.0006 & $-$0.0015 & $+$0.0027 & 0.591 & 处理后 \\
+2024 & $+$0.0015 & $-$0.0024 & $+$0.0054 & 0.451 & 处理后 \\
+2025 & $+$0.0024 & $-$0.0486 & $+$0.0534 & 0.927 & 处理后$^\dagger$ \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\small
+\item HC3 稳健标准误；单元级WLS，$n=32$。
+\item[$\dagger$] 2025年置信区间宽达 $\pm 0.051$，因处理组仅 3,597 条记录，
+该年估计量无统计意义。
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\textbf{平行趋势检验通过}：
+所有处理前年份（2016、2017、2018、2021）的 $\hat{\gamma}_t$
+均接近零且统计不显著（最小 $p = 0.263$），
+无系统性的处理前发散迹象，
+支持在2022年参照点两组处于平行趋势的假定。
+
+\textbf{处理后趋势}：
+系数在2023--2024年间单调上升（+0.0006 $\to$ +0.0015），
+但置信区间均跨越零，单独年份的估计在5\%水平上不显著，
+这与DID聚合估计（Spec~1 $p = 0.209$）一致。
+
+\textbf{注意断层（2018→2021）}：
+数据中缺失2019--2020年，导致事件研究时间轴存在3年空白，
+无法完整检验这一区间的平行趋势。
+这是本研究设计的固有局限，建议在报告中明确说明。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{/Users/yu/code/code2601/TY/data/Heterogeneity/did_results/event_study_plot.png}
+\caption{事件研究图：处理组相对于控制组的SCI年度差异
+（参照年=2022，蓝色圆点=处理前，红色方块=处理后，误差棒为95\% CI）}
+\label{fig:event_study}
+\end{figure}
+
+\subsection{行业异质性分析}
+
+\subsubsection{基于技术密集度的分类（tech\_type方案）}
+
+依据各行业在国民经济中的技术使用强度，将国标20门类划分为四组：
+
+\begin{table}[H]
+\centering
+\caption{行业分组的SCI趋势（2016--2024）}
+\begin{tabular}{lp{4.5cm}rrrr}
+\toprule
+分组 & 涵盖门类 & 2016 & 2022 & 2024 & $\Delta_{16\to24}$（\%） \\
+\midrule
+tech\_driven（技术驱动） & I（ICT）、M（科研）、J（金融）& 0.3929 & 0.4273 & 0.4363 & +11.1\% \\
+service\_driven（服务驱动） & P（教育）、Q（卫生）、L（商务）、R（文娱）、O（居民）& 0.3936 & 0.4262 & 0.4342 & +10.3\% \\
+manufacturing（制造） & C（制造）、D（能源）、E（建筑）& 0.3933 & 0.4255 & 0.4325 & +9.9\% \\
+traditional（传统） & A（农业）、H（餐饮）、F（零售）、N（环境）& 0.3921 & 0.4260 & 0.4316 & +10.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{发现}：行业间增幅差距仅约1.2个百分点，
+技术驱动型（+11.1\%）领先于制造业（+9.9\%），
+梯度方向与理论预测一致，但量级较小。
+
+值得注意的是，2022--2024年（大模型密集落地期）各组动态有所分化：
+\begin{itemize}
+    \item tech\_driven：$+0.0090$（2022年0.4273→2024年0.4363）
+    \item service\_driven：$+0.0080$
+    \item manufacturing：$+0.0070$
+    \item traditional：$+0.0056$
+\end{itemize}
+技术驱动型行业在大模型落地后的综合化加速幅度（+0.009）
+约为传统型行业（+0.006）的1.5倍，
+方向上支持"AI技术渗透率更高的行业综合化加速更快"的叙事。
+但上述差异尚未经过正式的统计检验，此处仅作描述性呈现。
+
+\subsubsection{基于内生增长理论的分类}
+
+参照 Romer（1990）--Lucas（1988）内生增长框架，
+将行业划分为思想/前沿部门、人力资本密集、物质资本密集和劳动密集四组：
+
+\begin{table}[H]
+\centering
+\caption{内生增长框架行业分组SCI趋势（2016--2024）}
+\begin{tabular}{lp{4.0cm}rrrr}
+\toprule
+分组（理论归属） & 涵盖门类 & 2016 & 2022 & 2024 & $\Delta_{16\to24}$（\%） \\
+\midrule
+思想/前沿（Romer） & I、M、J、R & 0.3931 & 0.4273 & 0.4364 & +11.0\% \\
+人力资本密集（Lucas） & P、Q、L & 0.3919 & 0.4266 & 0.4338 & +10.7\% \\
+物质资本密集 & D、E、B、G、K & 0.3945 & 0.4254 & 0.4334 & +9.9\% \\
+劳动密集（Solow剩余） & C、A、H、F、O、N & 0.3935 & 0.4257 & 0.4325 & +9.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+内生增长框架呈现出与理论预测方向一致的层次结构：
+思想/前沿部门（+11.0\%）$>$ 人力资本密集（+10.7\%）$>$ 物质资本及劳动密集（+9.9\%）。
+总体梯度约1.1个百分点。
+
+\subsection{数据与方法局限性总结}
+
+以下局限性对结论解读至关重要，\textbf{不应回避}：
+
+\begin{enumerate}[label=\textbf{L\arabic*.}]
+    \item \textbf{ISCO-08映射覆盖率不足（30.4\%缺失）}。
+    未能匹配的30\%记录被直接剔除，
+    若这些岗位在AI暴露程度上存在系统性差异（例如新兴职种多、传统职种少），
+    则样本选择偏差将使DID估计出现方向不确定的偏误。
+    现有结论的外部有效性受限于"可匹配至ISCO-08的岗位"这一子集。
+
+    \item \textbf{ILO WP140基于美国任务结构}。
+    将O*NET任务自动化评分直接移植中国劳动力市场，
+    隐含假设两国同职业名称的任务构成相同，这在制造业、服务业等领域可能不成立。
+
+    \item \textbf{事件研究时间轴断裂（2019--2020）}。
+    2019年（$n=17{,}372$，覆盖偏差）和2020年（$n=1{,}352$，疫情冲击）
+    被剔除，导致最接近处理时点（2022年）之前仅有2021年一个完整观测，
+    平行趋势检验的有效窗口（2016--2018，+2021）存在非连续性。
+
+    \item \textbf{单元级WLS功效不足}。
+    8个年份 $\times$ 4个梯度组 = 32个单元，
+    年份聚类意味着有效簇数仅8个，
+    导致Spec~1--4的标准误较大，正式统计显著性依赖于Spec~5（TWFE，个体级）。
+
+    \item \textbf{LDA指标的K敏感性未检验}。
+    SCI基于 $K=50$ 主题。
+    如果结论对 $K=30$ 或 $K=80$ 不稳健，则指标的有效性存疑。
+    此处未进行K值敏感性分析，建议后续补充。
+
+    \item \textbf{效应量小}。
+    DID核心系数（$\hat{\beta} \approx 0.001$）约为SCI标准差的0.5\%，
+    即使统计显著（Spec~5 $p = 0.021$），
+    其经济意义仍属"可检测到但不显著"的范畴。
+    在加入字数控制后进一步衰减至0.0008，说明部分"综合化"可能是
+    招聘文本字数增加的产物而非技能需求的真实变化。
+\end{enumerate}
+
+%% ============================================================
+\section{结论}
+%% ============================================================
+
+本研究利用778万条中国招聘广告数据，
+构建基于LDA的岗位技能综合化指数（SCI），
+以ILO WP140 AI暴露梯度划分处理组/控制组，
+以2023年中国大语言模型密集落地为处理事件，
+运行差中差（DID）识别分析，主要结论如下：
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+    \item \textbf{综合化趋势持续存在（2016--2024）}：
+    SCI从0.393上升至0.434（+10.4\%），HHI对应下降，
+    且该趋势在所有可靠样本年份均稳健，
+    在控制文本长度后仍然显著（年份固定效应系数均在5\%水平上高度显著）。
+
+    \item \textbf{AI暴露的DID效应方向正确，但量级较弱}：
+    高AI暴露职业（Gradient~3/4）相对于低AI暴露职业在2023年后
+    SCI额外上升约0.0008--0.0014单位，
+    在个体级TWFE（Spec~5）中达到5\%显著性（$p = 0.021$），
+    单元级WLS中不显著（$p = 0.209$）。
+
+    \item \textbf{综合化发生在主题层面而非词汇层面}：
+    唯一词元数（UniqueTokens）的DID系数为零（$p = 0.747$），
+    说明SCI增加体现在LDA主题分布多元化，
+    而非引入更多新词，与"技能领域混合"而非"要求更多技能"的解释相符。
+
+    \item \textbf{内生增长框架的行业梯度与理论方向一致}：
+    思想/前沿部门SCI增幅（+11.0\%）$>$ 劳动密集型部门（+9.9\%），
+    且2022--2024年间差距有所扩大，
+    与"AI技术优先渗透知识密集型行业"的叙事相符。
+\end{enumerate}
+
+\textbf{核心建议}：
+在正式发表前，建议重点改进以下两点：
+（一）采用基于BERT语义匹配的ISCO映射方案，
+将覆盖率从69.5\%提升至90\%以上，
+减少样本选择偏差；
+（二）对LDA模型的K值进行敏感性分析（$K \in \{30, 50, 80\}$），
+验证综合化趋势结论的稳健性。
+
+%% ============================================================
+\section*{参考文献}
+%% ============================================================
+
+\begin{itemize}
+    \item Acemoglu, D., \& Restrepo, P. (2018).
+    The race between man and machine: Implications of technology for growth, factor shares, and employment.
+    \textit{American Economic Review}, 108(6), 1488--1542.
+
+    \item Autor, D. H. (2015).
+    Why are there still so many jobs? The history and future of workplace automation.
+    \textit{Journal of Economic Perspectives}, 29(3), 3--30.
+
+    \item Brynjolfsson, E., \& Mitchell, T. (2017).
+    What can machines learn, and what does it mean for occupations and the economy?
+    \textit{AEA Papers and Proceedings}, 107, 43--47.
+
+    \item Eloundou, T., Manning, S., Mishkin, P., \& Rock, D. (2024).
+    GPTs are GPTs: Labor market impact potential of LLMs.
+    \textit{Science}, 384(6702), 1306--1308.
+
+    \item Felten, E., Raj, M., \& Seamans, R. (2023).
+    How will language modelers like ChatGPT affect occupations and industries?
+    SSRN Working Paper No.\ 4375268.
+
+    \item Gmyrek, P., Berg, J., Kamiński, K., et al. (2025).
+    Generative AI and Jobs: A Refined Global Index of Occupational Exposure.
+    \textit{ILO Working Paper 140}. Geneva: ILO.
+    \url{https://doi.org/10.54394/HETP0387}
+
+    \item Lucas, R. E. (1988).
+    On the mechanics of economic development.
+    \textit{Journal of Monetary Economics}, 22(1), 3--42.
+
+    \item Romer, P. M. (1990).
+    Endogenous technological change.
+    \textit{Journal of Political Economy}, 98(5), S71--S102.
+\end{itemize}
+
+%% ============================================================
+\appendix
+\section{附录：核心输出文件}
+%% ============================================================
+
+\begin{table}[H]
+\centering
+\small
+\caption{本阶段核心输出文件路径}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{4.2cm}p{9.2cm}}
+\toprule
+用途 & 路径 \\
+\midrule
+LDA推断结果（含token\_count） & \path{data/Heterogeneity/final_results_sample_sorted.csv} \\
+联合映射主表（含token\_count） & \path{data/Heterogeneity/master_joint_industry20_analysis.csv} \\
+AI暴露主表 & \path{data/Heterogeneity/master_with_ai_exposure.csv} \\
+词汇熵辅助表 & \path{data/Heterogeneity/word_entropy_by_id.csv} \\
+年度AI暴露熵统计 & \path{data/Heterogeneity/yearly_ai_exposure_entropy.csv} \\
+年度经济分组熵统计 & \path{data/Heterogeneity/yearly_economic_grouping_entropy.csv} \\
+DID基准结果 & \path{data/Heterogeneity/did_results/did_cell_baseline.txt} \\
+DID字数控制结果 & \path{data/Heterogeneity/did_results/did_cell_token_ctrl.txt} \\
+DID--HHI稳健性 & \path{data/Heterogeneity/did_results/did_cell_hhi.txt} \\
+DID词汇熵稳健性 & \path{data/Heterogeneity/did_results/did_cell_unique_tokens.txt} \\
+个体级TWFE & \path{data/Heterogeneity/did_results/did_indiv_twfe.txt} \\
+事件研究系数 & \path{data/Heterogeneity/did_results/event_study_coefs.csv} \\
+事件研究图 & \path{data/Heterogeneity/did_results/event_study_plot.png} \\
+LDA模型 & \path{output/global_lda_fast.bin} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

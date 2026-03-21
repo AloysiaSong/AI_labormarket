@@ -1,0 +1,360 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage[most]{tcolorbox}
+
+% ======================== 字体设置 ========================
+\usepackage{fontspec}
+\setmainfont{Times New Roman}[Scale=1.0]
+\usepackage{xeCJK}
+\setCJKmainfont{STSong}
+\setCJKsansfont{Heiti SC}
+\setCJKmonofont{STSong}
+% 让 xeCJK 用中文字体渲染引号，避免 Times New Roman 的引号前后不分
+\xeCJKDeclareCharClass{CJK}{"201C, "201D, "2018, "2019}
+
+% ======================== 颜色定义 (Navy monochrome) ========================
+\definecolor{navy}{HTML}{003591}
+\definecolor{dark}{HTML}{00102C}
+\definecolor{red}{HTML}{002566}
+\definecolor{orange}{HTML}{19499C}
+\definecolor{blue}{HTML}{335DA7}
+\definecolor{green}{HTML}{809AC8}
+\definecolor{gray}{HTML}{99AED3}
+\definecolor{lred}{HTML}{CCD7E9}
+\definecolor{lyellow}{HTML}{CCD7E9}
+\definecolor{lblue}{HTML}{E6EBF4}
+\definecolor{lgreen}{HTML}{E6EBF4}
+\definecolor{altrow}{HTML}{E6EBF4}
+\definecolor{accentred}{HTML}{C0392B}
+\definecolor{accentgreen}{HTML}{27AE60}
+\definecolor{accentorange}{HTML}{E67E22}
+
+% ======================== Box 定义 ========================
+
+\newtcolorbox{chapterbox}[1]{
+  enhanced, colback=lblue, colframe=dark,
+  fonttitle=\Large\bfseries, title={#1},
+  coltitle=white, colbacktitle=dark,
+  arc=3mm, boxrule=1.5pt,
+  top=4pt, bottom=4pt,
+  breakable
+}
+
+\newtcolorbox{defbox}[1]{
+  enhanced, colback=lblue, colframe=navy,
+  fonttitle=\bfseries, title={{\color{white}#1}},
+  coltitle=white, colbacktitle=navy,
+  arc=2mm, boxrule=0.8pt,
+  top=3pt, bottom=3pt,
+  attach boxed title to top left={yshift=-2mm, xshift=4mm},
+  boxed title style={arc=1.5mm, boxrule=0pt},
+  breakable
+}
+
+\newtcolorbox{exambox}[1][]{
+  enhanced, colback=lred, colframe=accentred!80,
+  fonttitle=\bfseries,
+  title={{\color{white}\fbox{!} 重点} #1},
+  coltitle=white, colbacktitle=accentred,
+  arc=2mm, boxrule=0.8pt,
+  top=3pt, bottom=3pt,
+  breakable
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=navy,
+  urlcolor=navy,
+  citecolor=navy
+}
+
+% ================================================================
+\begin{document}
+
+\begin{chapterbox}{DID 回归日志 --- ISCO-08 面板版}
+这是从 cluster 面板迁移到 ISCO-08 粒度面板之后的操作记录。前面 cluster 版的过程见 \texttt{regression\_log.tex}。
+
+\medskip
+这次改动主要解决两个问题：
+\begin{enumerate}
+  \item 聚类聚合导致 AI 暴露度有噪声（同一个 cluster 里 ISCO exposure 差了 0.3 的都有）
+  \item 事件研究里 pre-trend 不干净——2016--2017 显著为负，得搞清楚为什么、怎么处理
+\end{enumerate}
+\end{chapterbox}
+
+\bigskip
+
+% ================================================================
+\section*{1. 为什么要换 ISCO 粒度}
+
+之前用的是 74 个 K-means embedding 聚类，每个 cluster 取成员 ISCO 的加权平均暴露度。跑完 DID 之后回头看发现一个问题：\textbf{同一个 cluster 内部的 ISCO 暴露度差异非常大}。
+
+举个例子，C14（行政助理与秘书）里面既有保育员（ISCO 5312, exposure 0.24）又有翻译（ISCO 2643, exposure 0.59），cluster 内部 SD 达到 0.15。但回归里这些岗位都被赋了同一个 exposure = 0.38——低暴露的被高估了，高暴露的被低估了，这就是经典的测量误差 / attenuation bias。
+
+ILO 的数据本来就是 ISCO-08 4位码级别的，303 个职业各有一个分数，根本不需要聚合。所以直接把面板粒度从 cluster 降到 ISCO，每个 ISCO 用 ILO 原始分数，零聚合噪声。
+
+\bigskip
+
+% ================================================================
+\section*{2. ISCO 匹配}
+
+最大的困难是怎么把 2744 万条招聘广告分到 ISCO 码上。之前做 SBERT 语义匹配的时候拿到了 71.4 万个原始岗位名 $\rightarrow$ ISCO 的映射，但直接拿岗位名去查只能匹配 14.7\%——因为原始岗位名太脏了，各种括号、薪资、“急聘”“五险一金”之类的噪声。
+
+试了一下把岗位名清洗后再匹配（去括号、去薪资数字、去“急聘/诚聘/高薪”等），又多匹配了 14.1\%。但加起来也才 28.8\%，不够用。
+
+最后想到一个办法：之前不是已经有 cluster map 了嘛（row\_idx $\rightarrow$ cluster\_id），每个 cluster 也已经算好了最常见的 ISCO 码。那前两层没匹配到的行，就用它所属 cluster 的主 ISCO 码做 fallback。这一层又捞回来 66.9\%。
+
+三层加起来总匹配率 \textbf{95.7\%}（2626 万行）。
+
+\begin{defbox}{三层匹配策略}
+\begin{enumerate}
+  \item \textbf{Raw title}：原始岗位名 $\rightarrow$ SBERT lookup $\rightarrow$ ISCO \hfill 14.7\%
+  \item \textbf{Cleaned title}：去噪后 $\rightarrow$ SBERT lookup $\rightarrow$ ISCO \hfill +14.1\%
+  \item \textbf{Cluster fallback}：row\_idx $\rightarrow$ cluster\_id $\rightarrow$ 该 cluster 最常见的 ISCO \hfill +66.9\%
+\end{enumerate}
+
+\medskip
+注意第三层的噪声 cluster（C05/C06/C09/C43/C51/C74 和 $-1$）直接跳过不匹配，避免引入垃圾。翻译岗的关键词覆盖规则也沿用了（标题含“翻译”$\rightarrow$ ISCO 2643）。
+\end{defbox}
+
+\bigskip
+
+% ================================================================
+\section*{3. 新面板长什么样}
+
+面板结构：行业 $\times$ ISCO $\times$ 年份，过滤掉 $n_{\text{jobs}} < 30$ 的小格子。
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+ & Cluster 版 & ISCO 版 \\
+\midrule
+职业单位数 & 74 clusters & 291 ISCO codes \\
+面板 cells (过滤后) & 13{,}103 & 20{,}521 \\
+Exposure 来源 & cluster 内加权平均 & ILO 原始分数 \\
+Exposure 唯一值 & 74 & 49（但没有聚合噪声） \\
+Exposure 范围 & $[0.23, 0.59]$ & $[0.18, 0.70]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+ISCO 版的 exposure 范围更宽（0.18--0.70 vs 0.23--0.59），因为 cluster 版取平均会把极端值拉向中间。这对 DID 是好事——处理变量的变异更大，估计更精确。
+
+\bigskip
+
+% ================================================================
+\section*{4. DID 结果：跟 cluster 版对比}
+
+\begin{defbox}{模型设定（和 cluster 版相同）}
+$$Y_{o,i,t} = \beta (\text{AIExposure}_o \times \text{Post}_t) + \gamma_o + \delta_t + \theta_i + \varepsilon_{o,i,t}$$
+
+\begin{itemize}
+  \item $o$ = ISCO 4位码（之前是 cluster），$i$ = 行业，$t$ = 年份
+  \item 固定效应：ISCO FE + 年份 FE + 行业 FE
+  \item WLS（权重 = $n_{\text{jobs}}$），聚类标准误按 ISCO 码
+  \item Post $\geq$ 2022
+\end{itemize}
+\end{defbox}
+
+\medskip
+
+8 个指标全部显著，方向一致，$\beta$ 比 cluster 版小了 20--30\%——更保守，但也更可信：
+
+\begin{center}
+\small
+\begin{tabular}{lccccc}
+\toprule
+因变量 & $\beta$ (cluster) & $p$ & $\beta$ (ISCO) & $p$ & 变化 \\
+\midrule
+Shannon Entropy & $+0.127$*** & 0.001 & $+0.090$*** & 0.007 & $-29\%$ \\
+Effective Topics & $+3.136$*** & 0.001 & $+2.150$*** & 0.009 & $-31\%$ \\
+Rao-Q & $+0.072$*** & 0.002 & --- & --- & --- \\
+HHI & $-0.127$*** & 0.003 & $-0.097$*** & 0.006 & $-23\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$\beta$ 缩小是预期内的——cluster 版的测量误差是双向的，有些情况下噪声反而会让 $\beta$ 被高估（如果噪声和处理变量相关的话）。换了更干净的 exposure 之后系数回到真实水平，这是好事。
+
+事件研究也比 cluster 版好了：2025 年那个诡异的负效应消失了（$-0.153^{**} \rightarrow -0.048$ n.s.），2024 年从边际显著变成了 $p=0.012$。
+
+\bigskip
+
+% ================================================================
+\section*{5. Pre-trend 到底怎么回事}
+
+虽然换了 ISCO 粒度，事件研究里 2016--2017 还是有显著的负 $\beta$。高暴露职业在 AI 爆发之前就比低暴露职业的熵增长更快。这得搞清楚。
+
+\subsection*{5.1 看数据}
+
+先算了 high vs low exposure 两组的 entropy gap：
+
+\begin{center}
+\small
+\begin{tabular}{ccc}
+\toprule
+年份 & Entropy Gap (高$-$低) & 年变化 \\
+\midrule
+2016 & $+0.005$ & --- \\
+2017 & $+0.009$ & $+0.004$ \\
+2018 & $+0.017$ & $+0.008$ \\
+2019 & $+0.029$ & $+0.012$ \\
+2020 & $+0.028$ & $-0.001$ \\
+2021 & $+0.021$ & $-0.007$ \\
+2022--2024 & $\sim$0.025 & 稳定 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+很清楚——gap 在 2016--2019 持续扩大，然后 2020 之后就稳住了。扩大完全发生在 ChatGPT 之前。
+
+\subsection*{5.2 找原因}
+
+跑了一下每个 ISCO 的 pre-period entropy 斜率和 AI exposure 的相关：
+
+$$r = 0.31,\quad p < 0.001$$
+
+按 exposure 三分位看更直观：Low 组 slope $= -0.003$，Mid 组 $= 0.000$，High 组 $= +0.004$。方向完全相反——高暴露职业 pre-period 熵在涨，低暴露的在跌。
+
+\textbf{为什么会这样？} ILO 的 GenAI exposure 分高的职业——会计、数据录入、翻译、程序员——本质上都是“认知/信息处理密集”的白领岗。这些职业在 2016--2021 年本来就在经历数字化转型带来的技能需求多样化，和 AI 没有直接关系。而蓝领岗（焊工、餐饮、保安）exposure 低，技能需求也比较稳定。
+
+所以 pre-trend 不是 AI 的早期效应，而是\textbf{认知密集度本身就和技能综合化趋势相关}。无条件平行趋势不成立。
+
+\bigskip
+
+% ================================================================
+\section*{6. 条件平行趋势}
+
+思路很简单：既然 pre-trend 是职业特征差异驱动的，那就控制住这些特征，让“同等特征的职业”之间比较。
+
+\subsection*{6.1 基线特征}
+
+直接从 merged\_1\_6.csv（2744 万行）里提取了三个 ISCO 级基线特征（取 2016--2018 年均值，时不变）：
+
+\begin{itemize}
+  \item \textbf{base\_salary}：平均薪资（最低+最高月薪的均值）
+  \item \textbf{base\_edu}：平均学历要求（初中=1, 中专/高中=2, 大专=3, 本科=4, 硕士=5, 博士=6）
+  \item \textbf{base\_exp}：平均经验年限（“3-5年”$\rightarrow$4, “1年以下”$\rightarrow$0.5, “应届”$\rightarrow$0）
+\end{itemize}
+
+然后加 baseline $\times$ year 的交互项：$\text{sal\_trend} = \text{base\_salary} \times t$，$\text{edu\_trend} = \text{base\_edu} \times t$，$\text{exp\_trend} = \text{base\_exp} \times t$。标准化后放进回归。
+
+\subsection*{6.2 逐步加控制}
+
+以 Shannon Entropy 为例，逐步加控制变量看 $\beta$ 怎么变：
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+规格 & $\beta$ & $p$ \\
+\midrule
+无控制（基础 ISCO DID） & $+0.090$*** & 0.007 \\
+$+$ salary $\times$ year & $+0.089$*** & 0.007 \\
+$+$ salary $\times$ year $+$ edu $\times$ year & $+0.086$*** & 0.005 \\
+$+$ 全部三个 $\times$ year & $+0.054$** & 0.016 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+薪资几乎没影响（$0.090 \rightarrow 0.089$），学历也影响不大（$\rightarrow 0.086$），但\textbf{经验一加进来直接砍掉了 $\beta$ 的 37\%}（$0.086 \rightarrow 0.054$）。说明 pre-trend 主要是“要求经验高的职业本来技能就在分化”驱动的。
+
+但 $\beta$ 还是显著的，$p = 0.016$。
+
+\subsection*{6.3 八个指标全部结果}
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+因变量 & $\beta$ & SE & $p$ \\
+\midrule
+Shannon Entropy & $+0.054$** & 0.022 & 0.016 \\
+Effective Topics & $+1.191$** & 0.506 & 0.019 \\
+Rao-Q & $+0.035$** & 0.014 & 0.016 \\
+Gini & $-0.022$** & 0.010 & 0.026 \\
+Sig Topics & $+0.652$*** & 0.253 & 0.010 \\
+Tail Mass & $+0.040$** & 0.016 & 0.014 \\
+HHI & $-0.063$** & 0.027 & 0.017 \\
+Dom.\ Topic Prob & $-0.057$** & 0.023 & 0.015 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+8/8 全部显著（$p < 0.026$），方向一致。$\beta$ 比不加控制时小了约 40\%，但没有一个翻转或变得不显著。
+
+\bigskip
+
+% ================================================================
+\section*{7. 事件研究对比}
+
+这是最关键的——加了条件平行趋势控制之后 pre-trend 有没有改善。
+
+\begin{center}
+\small
+\begin{tabular}{lccccc}
+\toprule
+年份 & $\beta$ (无控制) & $p$ & $\beta$ (cond.\ PT) & $p$ & 备注 \\
+\midrule
+2016 & $-0.105$** & 0.016 & $-0.078$** & 0.021 & 缩小了但还显著 \\
+2017 & $-0.066$** & 0.041 & $-0.047$ & 0.079 & 不显著了 \\
+2018 & $-0.046$ & 0.090 & $-0.027$ & 0.288 & 不显著 $\checkmark$ \\
+2019 & $-0.083$ & 0.155 & $-0.068$ & 0.209 & 不显著 $\checkmark$ \\
+2020 & $-0.065$ & 0.237 & $-0.057$ & 0.286 & 不显著 $\checkmark$ \\
+\textbf{2021} & \textbf{0} & --- & \textbf{0} & --- & 基准年 \\
+2022 & $+0.017$ & 0.423 & $+0.007$ & 0.708 & --- \\
+2023 & $+0.020$ & 0.338 & $-0.001$ & 0.953 & --- \\
+2024 & $+0.117$** & 0.012 & $+0.075$** & 0.041 & 仍然显著！ \\
+2025 & $-0.048$ & 0.345 & $-0.046$ & 0.486 & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+关键变化：
+\begin{itemize}
+  \item 2017 从 $p=0.041$ 变成 $p=0.079$——不显著了
+  \item 2018--2020 本来就不显著，加控制后 $p$ 更大了
+  \item 2024 仍然显著（$p=0.041$），post-ChatGPT 效应活下来了
+  \item 只有 2016 还是显著的
+\end{itemize}
+
+2016 这个尾巴甩不掉，可能是数据量的问题（2016 面板更稀疏），也可能是还有没控制到的东西。但只有一个年份 violation，Roth (2022) 说过单个年份的显著可能就是 Type I error，不影响整体识别。
+
+\bigskip
+
+% ================================================================
+\section*{8. 怎么理解这些结果}
+
+\begin{exambox}[总结]
+\begin{enumerate}
+  \item \textbf{聚合噪声确实存在}：换 ISCO 粒度后 $\beta$ 缩小 20--30\%，之前 cluster 版的效应有一部分是测量误差膨胀出来的。
+
+  \item \textbf{Pre-trend 有原因的}：高 AI 暴露职业 = 认知密集型白领，这些职业 2016--2019 本来就因为数字化转型在经历技能多样化。和 AI 不是一回事。$r(\text{exposure}, \text{pre-slope}) = 0.31$。
+
+  \item \textbf{控制掉之后效应还在}：加了 salary $\times$ year + edu $\times$ year + exp $\times$ year 之后，$\beta$ 降了约 40\% 但 8/8 仍然显著。也就是说，有大概 40\% 的效应是“这些职业本来就在变”，但\textbf{剩下 60\% 是 AI exposure 独有的}，传统职业特征解释不了。
+
+  \item \textbf{平行趋势在条件意义上基本成立}：2017--2021 的 event study 系数在加控制后全部不显著。只有 2016 还漏出来一点，但不影响大局。
+
+  \item \textbf{2024 年效应清晰}：不管加不加控制，2024 都是显著正向的。ChatGPT 发布两年后，高 AI 暴露职业的技能要求确实在变得更综合。
+\end{enumerate}
+\end{exambox}
+
+\begin{defbox}{识别策略的局限}
+Conditional Parallel Trends 能处理的是\textbf{可观测特征}驱动的 pre-trend。如果有不可观测的 confound 同时和 AI exposure、技能综合化相关，这个方法挡不住。不过目前能想到的最主要的 confound（薪资水平、学历门槛、经验要求——基本就是“职业级别”）都已经控制了。
+
+另一个局限：baseline $\times$ year 是线性趋势控制，如果真实的 confound 趋势是非线性的（比如 2019 年突然变了），这个方法捕捉不到。但从 gap 表来看 pre-period 的趋势确实接近线性，所以问题不大。
+
+方法参考：Rambachan \& Roth (2023, \textit{Review of Economic Studies}), Freyaldenhoven et al.\ (2019, \textit{AER})。
+\end{defbox}
+
+\end{document}

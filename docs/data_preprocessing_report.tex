@@ -1,0 +1,780 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{longtable}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue
+}
+
+\title{\textbf{数据清洗与NLP预处理报告}\\[0.5em]
+\large 从三源合并到processed\_corpus.jsonl的完整链路}
+\author{宋宇}
+\date{2026年3月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+
+% ===================================================================
+\section{总览}
+\label{sec:overview}
+% ===================================================================
+
+这份报告记录的是从原始三个CSV数据源到最终NLP预处理产物 \texttt{processed\_corpus.jsonl} 的完整数据处理流程。
+同时也解决掉上一版（\texttt{methodology\_review.tex}）里提出的问题，
+这次的预处理是针对那些问题逐条改进之后的版本。
+
+整条链路分两大阶段：
+
+\begin{verbatim}
+阶段一：结构化清洗（CSV → CSV）
+  merge.py:            三源合并 → merged.csv (含data_source列)
+  rebuild_cleaned.py:  两遍扫描合并6步清洗
+    Pass 1: 年份过滤 + 联合键去重 → merged_1_1.csv
+    Pass 2: 缺失值 + HTML + 应届标记 + 符号/数字保护
+            → merged_1_6.csv
+
+阶段二：NLP预处理（CSV → JSONL）
+  nlp_pipeline.py:     两遍扫描
+    Pass 1: 分词 + 过滤 + bigram统计 → temp_pass1.jsonl
+    Pass 2: bigram合并 + MIN_TOKENS过滤
+            → processed_corpus.jsonl + preprocessing_stats.json
+\end{verbatim}
+
+最终产物：\textbf{26,792,380}条文档的token序列，供后续LDA训练使用。
+
+
+% ===================================================================
+\section{阶段一：结构化清洗}
+\label{sec:structural}
+% ===================================================================
+
+% -------------------------------------------------------------------
+\subsection{Step 0：合并三份不同数据源数据（merged.csv）}
+% -------------------------------------------------------------------
+
+原始数据来自三个CSV文件：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrll}
+\toprule
+\textbf{数据源} & \textbf{行数} & \textbf{列数} & \textbf{时间跨度} & \textbf{特有列} \\
+\midrule
+上市公司招聘大数据 & 1,289,562 & 22 & 2014--2024 & 关联股票代码、与上市公司关系 \\
+应届生招聘大数据 & 6,266,133 & 20 & 2014--2025.6 & --- \\
+all\_in\_one（就是最开始那一份数据） & 22,479,417 & 20 & 2016--2024 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+合并时做了以下处理：
+\begin{itemize}
+\item 删除了``关联股票代码''和``与上市公司关系''两列——这两个字段只有上市公司数据才有，合并后意义不大。
+\item 统一列名：\texttt{数据平台} $\to$ \texttt{来源平台}。
+\item 保留了 \texttt{来源} 字段（标识数据来自哪个平台：智联招聘、BOSS直聘等），
+后面做稳健性检验时可以按来源分组分析。
+\item \textbf{新增 \texttt{data\_source} 列}——标记每条记录来自哪个原始文件：
+\begin{itemize}
+\item 上市公司招聘大数据 $\to$ \texttt{"上市公司"}
+\item 应届生招聘大数据 $\to$ \texttt{"应届生"}
+\item all\_in\_one $\to$ \texttt{"综合"}
+\end{itemize}
+后面可以按这个字段分组，看看不同数据源的应届生比例、行业分布有没有系统性差别。
+\end{itemize}
+
+合并后：\textbf{29,908,982}行，21列。
+这时候还没做年份过滤——2014--2015年的数据留到Step~1再删。
+
+
+% -------------------------------------------------------------------
+\subsection{Step 1：年份过滤 + 去重（merged\_1\_1.csv）}
+% -------------------------------------------------------------------
+
+先删掉2014--2015年的数据——总共就252条，太少了没什么意义。
+然后以 (\texttt{企业名称}, \texttt{招聘岗位}, \texttt{工作城市}, \texttt{招聘发布日期}, \texttt{最低月薪}, \texttt{最高月薪}) 为联合键做去重。
+
+实现上有个细节：3000万行数据，如果把六个字段拼成字符串存在Python set里，内存会爆。
+所以改用了MD5哈希——把六个字段拼接后算MD5，只存16字节的哈希值，
+内存占用从若干GB降到了不到1GB，速度也快了很多。
+
+\begin{itemize}
+\item 输入：29,908,982行
+\item 输出：\textbf{27,450,302}行（年份过滤 + 去重共删除 2,458,680 条，占比 8.22\%）
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{Step 2：缺失值处理（merged\_1\_2.csv）}
+% -------------------------------------------------------------------
+
+删除规则就是：
+\begin{itemize}
+\item \texttt{职位描述}为空的行——没有文本就没法做NLP，必须删。
+\item \texttt{招聘发布年份}为空的行——后面需要按年份聚合分析，没有年份的记录没法用。
+\end{itemize}
+
+\begin{itemize}
+\item 输入：27,450,302行
+\item 输出：\textbf{27,436,387}行（去掉 13,915 条，占比 0.05\%）
+\end{itemize}
+
+缺失率极低，说明数据源本身的完整度还是比较高的～
+
+说明一下：现在的实现（\texttt{rebuild\_cleaned.py}）里，Steps 2--6 是在一个pass里一起做的，
+不再产生中间文件 \texttt{merged\_1\_2.csv} 到 \texttt{merged\_1\_5.csv}了。
+缺失值删除和HTML清洗后变空的行一起被删掉。
+
+
+% -------------------------------------------------------------------
+\subsection{Step 3：HTML残留清洗（merged\_1\_3.csv）}
+% -------------------------------------------------------------------
+
+原始数据是从招聘网站爬取的，\texttt{职位描述}字段里也还残留了大量HTML标签和实体。
+比如 \texttt{<br>}（换行）、\texttt{<p>}（段落）、\texttt{\&nbsp;}（空格）、
+\texttt{<div style="color:\#333">} 之类的东西。
+
+清洗逻辑：
+\begin{enumerate}
+\item 正则去除所有HTML标签（\texttt{<...>}）。
+\item 解码常见HTML实体（\texttt{\&amp;} $\to$ \&、\texttt{\&lt;} $\to$ <、\texttt{\&gt;} $\to$ >、\texttt{\&nbsp;} $\to$ 空格等）。
+\item 压缩连续空白字符。
+\end{enumerate}
+
+\begin{itemize}
+\item 输出：\textbf{27,436,387}行（清洗后变成空白的行与Step~2一并删除，
+合计13,915条，见上）
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{Step 4：应届生标记（多信号）}
+% -------------------------------------------------------------------
+
+这一步是天宇老师提的——三个数据源的来源不一样（上市公司、应届生专场、综合平台），
+直接混在一起可能引入数据源偏误。
+于是加了一个 \texttt{is\_fresh\_grad} 二值标记，用于后续做子样本稳健性检验。
+
+上一版只查了\texttt{要求经验}一个字段，漏标了很多。
+在200万行采样里做了个诊断，发现问题挺大的：
+
+\begin{itemize}
+\item \texttt{招聘岗位}含``实习''的有29,255条，但只有30\%被标为fg=1——
+也就是说大部分``XX实习生''的岗位根本没被标上；
+\item \texttt{招聘岗位}含``应届''的有2,000+条，也只有32\%被标上；
+\item \texttt{招聘类别}是``校园''开头的有好几千条，只有40\%被标上。
+\end{itemize}
+
+原因很简单：很多应届岗位在\texttt{要求经验}那栏填的是``1年以下''``不限''之类的模糊表述，
+真正有区分度的是\texttt{招聘岗位}（如``销售实习生''``校招管培生''）和\texttt{招聘类别}（如``校园招聘''``实习''）。
+
+所以这次改成了三个字段联合判断，OR逻辑（命中任一即标为1）：
+
+\begin{itemize}
+\item \texttt{要求经验}字段：
+包含``应届''``毕业''``无工作经验''``无经验''``在校''。
+
+\item \texttt{招聘岗位}字段：
+包含``校招''``校园招聘''``管培''``实习''``应届''``毕业生''``见习''。
+
+\item \texttt{招聘类别}字段：
+以``校园''或``实习''开头，或者包含``管理培训生''``实习生''。
+\end{itemize}
+
+有几个词讨论过之后决定\textbf{不加}：
+\begin{itemize}
+\item ``储备''（如``储备干部''）——实际查了一下发现这类岗位经常面向有经验的人，不纯。
+\item ``不限''``经验不限''``0年以上''``1年以下''——
+这些虽然允许应届生投递，但社招也投，标上去的话会过度包含。
+\end{itemize}
+
+另外，\texttt{data\_source} 没有折叠进 \texttt{is\_fresh\_grad}——
+虽然``应届生招聘大数据''整体偏应届，但里面也有不少社招岗位，
+不能简单地把整个数据源都算成应届。
+\texttt{data\_source} 留着当独立的元数据列，后面分组分析用。
+
+标记结果：
+
+\begin{itemize}
+\item is\_fresh\_grad = 1：\textbf{4,500,008}条（16.40\%）
+\item is\_fresh\_grad = 0：\textbf{22,936,379}条（83.60\%）
+\item 总行数不变：27,436,387行
+\end{itemize}
+
+比旧版（3,724,798条，13.58\%）多了 775,210 条（+2.82个百分点），
+主要是\texttt{招聘岗位}里的``实习''``校招''和\texttt{招聘类别}里的``校园''``实习''贡献的。
+
+
+% -------------------------------------------------------------------
+\subsection{Step 5：特殊符号词保护（merged\_1\_5.csv）}
+% -------------------------------------------------------------------
+
+后面的NLP管线里有一步正则过滤：只保留中文和英文字母，去掉所有标点和特殊符号。
+问题是：有些行业术语本身就包含特殊符号——
+\texttt{c++}会变成\texttt{c}（和C语言混淆），
+\texttt{c\#}也变成\texttt{c}，
+\texttt{.net}会被完全删掉，
+\texttt{tcp/ip}变成\texttt{tcp ip}两个词。
+
+所以在正则过滤\textbf{之前}，先对职位描述做了一轮替换。
+做法是先在全量数据里统计了所有含 \texttt{+, \#, ., /} 的高频词，
+筛选出有实际意义的22个，逐条确认后制定替换规则：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll|ll|ll}
+\toprule
+\textbf{原始} & \textbf{替换} & \textbf{原始} & \textbf{替换} & \textbf{原始} & \textbf{替换} \\
+\midrule
+c++ & cpp & c\# & csharp & .net & dotnet \\
+c/c++ & c\_cpp & tcp/ip & tcpip & b2b & btob \\
+b2c & btoc & o2o & otoo & p2p & ptop \\
+2d & twod & node.js & nodejs & vue.js & vuejs \\
+three.js & threejs & ext.js & extjs & d3.js & d3js \\
+express.js & expressjs & next.js & nextjs & nuxt.js & nuxtjs \\
+socket.io & socketio & e.g & eg & i.e & ie \\
+ph.d & phd & & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+同时全文转小写（\texttt{Python} $\to$ \texttt{python}，\texttt{JAVA} $\to$ \texttt{java}），
+确保后续分词不受大小写影响。
+
+行数不变：\textbf{27,436,387}行。
+（实际跑的时候Steps 5--6和前面的Steps 2--4是在 \texttt{rebuild\_cleaned.py} 的Pass~2里一起做的。）
+
+
+% -------------------------------------------------------------------
+\subsection{Step 6：数字语义词保护（merged\_1\_6.csv）}
+% -------------------------------------------------------------------
+
+和上一步同样的逻辑——正则会把所有数字删掉，
+但有些数字词本身有特定含义，删了就丢失信息。
+
+先在全量数据里统计了常见的数字语义词频次，确认后做了13条替换：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrl|lrl}
+\toprule
+\textbf{原始} & \textbf{频次} & \textbf{替换} & \textbf{原始} & \textbf{频次} & \textbf{替换} \\
+\midrule
+3d & 246,960 & threed & 985 & 153,025 & 九八五 \\
+211 & 99,414 & 二一一 & 5g & 48,671 & fiveg \\
+4s & 48,101 & fourshop & 2d & 36,025 & twod \\
+3c & 29,321 & threec & 4g & 14,037 & fourg \\
+5s & 10,925 & fives & 6s & 3,474 & sixsigma \\
+3a & 1,987 & threea & 4d & 1,271 & fourd \\
+8d & 1,146 & eightd & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+其中``985''和``211''替换成了中文（九八五、二一一），
+因为这两个词在中国语境下特指高校层次，和技术术语不同，
+用中文更直观也不会和其他数字混淆。
+``4s''替换成\texttt{fourshop}（4S店）、``6s''替换成\texttt{sixsigma}（六西格玛），
+是根据在招聘语料里的实际用法确定的。
+
+行数不变：\textbf{27,436,387}行。这就是结构化清洗的最终产物。
+
+
+% -------------------------------------------------------------------
+\subsection{结构化清洗汇总}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llrrl}
+\toprule
+\textbf{步骤} & \textbf{操作} & \textbf{输入行数} & \textbf{输出行数} & \textbf{变化} \\
+\midrule
+Step 0 & 三源合并 + 加data\_source列 & 三个CSV & 29,908,982 & 21列 \\
+Step 1 & 删2014--15 + 联合键去重 & 29,908,982 & 27,450,302 & $-$2,458,680 (8.22\%) \\
+Step 2--3 & 缺失值删除 + HTML清洗 & 27,450,302 & 27,436,387 & $-$13,915 (0.05\%) \\
+Step 4 & 应届生标记（三信号OR） & 27,436,387 & 27,436,387 & +1列 (fg=16.40\%) \\
+Step 5 & 特殊符号词保护 & 27,436,387 & 27,436,387 & 文本替换 \\
+Step 6 & 数字语义词保护 & 27,436,387 & 27,436,387 & 文本替换 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+数据量从最初的约3000万行，经过去重和缺失值处理后剩下约2744万行（损失约8.3\%），
+之后的步骤都是文本层面的修改，不再删除行。
+
+
+% ===================================================================
+\section{阶段二：NLP预处理}
+\label{sec:nlp}
+% ===================================================================
+
+NLP预处理由 \texttt{src/nlp\_pipeline.py} 完成，采用两遍扫描架构：
+\begin{itemize}
+\item Pass 1：CSV $\to$ 正则过滤 $\to$ jieba分词 $\to$ 停词/英文过滤 $\to$ 临时JSONL + bigram统计
+\item Bigram筛选：频次$\geq 20$ AND PMI $> 0$，取top 200,000
+\item Pass 2：临时JSONL $\to$ bigram合并 $\to$ MIN\_TOKENS过滤 $\to$ 最终JSONL + 诊断统计
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{正则过滤}
+% -------------------------------------------------------------------
+
+\begin{verbatim}
+RE_KEEP = re.compile(r'[^\u4e00-\u9fa5a-z]')
+text = RE_KEEP.sub(' ', desc)
+\end{verbatim}
+
+只保留中文字符（\texttt{\textbackslash u4e00-\textbackslash u9fa5}）和小写英文字母（\texttt{a-z}），
+其余全部替换为空格。
+因为Step 5和Step 6已经把特殊符号词和数字语义词都做了保护性替换，
+而且Step 5已经全文转了小写，
+所以这里的正则不会误伤那些有意义的术语。
+
+% -------------------------------------------------------------------
+\subsection{jieba分词 + HR领域词典}
+% -------------------------------------------------------------------
+
+jieba分词是精确模式（\texttt{jieba.lcut()}），
+加载了一个HR领域专用词典来提升分词质量。
+
+\subsubsection{词典来源}
+
+上一版用的是ESCO官方技能表，通过Google翻译批量翻成中文做成jieba词典
+（\texttt{src/esco/build\_bilingual\_dict.py}）。
+仔细检查之后发现这个词典质量很差：
+\begin{itemize}
+\item ESCO本身是欧洲标准，技能分类偏西方，很多术语在中国招聘市场几乎不出现。
+\item 机器翻译质量参差不齐，有些翻译完全不通顺。
+\item 所有词条的频率都设成了20000，没有区分度。
+\end{itemize}
+
+这次换成了 \textbf{DomainWordsDict}（\url{https://github.com/liuhuanyong/DomainWordsDict}）
+里面的``人力招聘''领域词典。
+这个词典是从中国实际招聘网站爬取的，原始有447,606个词条，
+经过筛选（只保留中文起始、长度2--6字符的词条）后剩下\textbf{126,952}个词条，
+保存为 \texttt{data/esco/jieba\_dict/hr\_jieba\_dict.txt}。
+
+\subsubsection{效果对比}
+
+用jieba默认词典和加载HR词典后的分词对比（举几个例子）：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{5cm}p{4.5cm}p{4.5cm}}
+\toprule
+\textbf{原文} & \textbf{默认词典} & \textbf{+HR词典} \\
+\midrule
+运维工程师 & 运维/工程师 & 运维工程师 \\
+五险一金 & 五险/一金 & 五险一金 \\
+应届毕业生 & 应届/毕业生 & 应届毕业生 \\
+售后服务 & 售后/服务 & 售后服务 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+加载HR词典后，行业术语的切分明显更合理。
+
+
+% -------------------------------------------------------------------
+\subsection{停词过滤}
+% -------------------------------------------------------------------
+
+停词表保存在 \texttt{data/stopwords.txt}，共\textbf{157}个词，分几大类：
+
+\begin{enumerate}
+\item \textbf{通用中文停词}（47个）：的、了、在、是、有、和、与、或……
+这些在任何中文文本里都高频出现，对区分主题毫无帮助。
+
+\item \textbf{HR模板结构词}（6个）：岗位职责、工作经验、以上学历、任职、要求、资格、职位、描述、招聘、职责、岗位——
+这些是招聘广告的固定模板词，几乎每条JD都会出现。
+
+\item \textbf{HR程度/修饰词}（11个）：熟悉、熟练、掌握、精通、了解、善于……
+这些词描述的是``要求什么程度的掌握''而不是``要求什么技能''，
+留着会让LDA把不同程度的同一技能识别成不同主题。
+
+\item \textbf{HR泛化动词}（34个）：负责、具有、具备、协调、制定、处理……
+几乎所有JD都会用这些动词来描述工作内容，它们本身不携带行业信息。
+
+\item \textbf{HR泛化名词/形容词}（44个）：相关、以上、以下、优先、经验、工作、能力、公司……
+同理，这些词在所有行业的JD里都高频出现。
+
+\item \textbf{边界词}（7个）：组织、合作、学习、员工、部门、行业、领导——
+这几个词讨论了比较久。它们在招聘语料里频次很高（100万+），
+看上去有一些语义内容（比如``组织''可以是``组织能力''也可以是``组织架构''），
+但实际上在JD里基本都是模板用法（``具备良好的组织协调能力''``与团队合作''），
+对区分主题的贡献很有限，最终决定删除。
+
+\item \textbf{数据源水印}（2个）：马克、数据网——
+爬虫爬到的水印文字（``马克数据网''）。
+\end{enumerate}
+
+停词表的制定过程：先在300万行采样数据上统计了top 200高频中文token，
+逐个审核每个词的实际用法，区分``在所有JD里都出现的模板词''
+和``只在某些行业/岗位的JD里出现的区分性词汇''，
+前者加入停词表，后者保留。
+
+
+% -------------------------------------------------------------------
+\subsection{英文Token过滤}
+% -------------------------------------------------------------------
+
+上一版的做法是只保留9个编程语言名（python, java, sql, c, r, go, cpp, csharp, dotnet），
+其余英文一律删除。
+这太激进了——实际上有大量有意义的英文词被丢掉了
+（office, excel, cad, erp, linux, html, css, ai, vue, react……）。
+
+这次改成了\textbf{黑名单策略}：默认保留所有长度$\geq 2$的英文词，
+只用一个约50个词的黑名单排除确认无意义的英文token：
+
+\begin{itemize}
+\item \textbf{HTML/网页残留}（20个）：br, lt, gt, nbsp, amp, div, span, font, img,
+href, style, color, margin, padding, px, display, border, width, height, background,
+www, http, https, com, cn, org, net, macrodatas, xmrc, pgt
+
+\item \textbf{英文虚词}（27个）：and, the, in, to, of, or, with, for,
+is, are, be, an, at, by, on, as, we, do, if, no, not, can, will,
+this, that, from, but, all, so, our, your
+
+\item \textbf{JD模板英文词}（6个）：experience, management, project, work, team,
+position, job, company, please, good, well
+
+\item \textbf{度量/无意义}（3个）：cm, mm, kg, ee
+\end{itemize}
+
+对于\textbf{单字母}：只保留 \texttt{c} 和 \texttt{r}（C语言、R语言），
+其余单字母全部删除（d, b, s, a, e之类的大多是HTML残留或无意义碎片）。
+
+黑名单的制定也是基于采样数据的英文token频率统计，
+逐个确认每个高频英文词的实际用法后制定的。
+剩余的低频噪声交给后续LDA的 \texttt{min\_cf} 和 \texttt{rm\_top} 自动过滤。
+
+
+% -------------------------------------------------------------------
+\subsection{Bigram合并}
+% -------------------------------------------------------------------
+
+目的是把经常连着出现的相邻词对合并成一个token，
+比如``数据'' + ``分析'' $\to$ ``数据\_分析''，``办公'' + ``软件'' $\to$ ``办公\_软件''。
+这样LDA就能把``数据分析''当作一个整体来建模，而不是``数据''和``分析''两个独立的词。
+
+\subsubsection{两遍扫描架构}
+
+\begin{enumerate}
+\item \textbf{Pass 1}：遍历全部2740万条文档，统计所有相邻词对的共现频次和每个词的频次。
+每处理100万条文档做一次剪枝——把频次$< 5$的词对删掉，防止Counter无限膨胀。
+（上一版是500万行剪一次，但bigram词对数太多会拖慢速度，改成100万行更合理。）
+
+\item \textbf{Bigram筛选}：用两个条件联合过滤：
+\begin{itemize}
+\item 频次$\geq 20$：这个词对在全部文档里至少出现了20次。
+\item PMI $> 0$：Pointwise Mutual Information——
+衡量两个词``一起出现的概率''是不是比``各自独立出现的概率相乘''更高。
+PMI $> 0$说明这两个词确实倾向于共现，不是碰巧排在一起的。
+\end{itemize}
+公式：
+\[
+\text{PMI}(a, b) = \log \frac{P(a, b)}{P(a) \cdot P(b)}
+= \log \frac{C(a,b) \cdot N}{C(a) \cdot C(b)}
+\]
+其中$C(a,b)$是词对$(a,b)$的共现次数，$C(a)$和$C(b)$是各自的频次，$N$是总词对数。
+
+筛选完按频次排序，取top 200,000个bigram。
+
+上一版只用了频次阈值没有PMI，
+加PMI是为了过滤掉那种``两个常见词碰巧排在一起''的情况
+（比如``客户''和``客户''，频次很高但PMI很低，说明只是因为两个常见词碰巧相邻）。
+
+\item \textbf{Pass 2}：重新遍历临时JSONL，用贪心策略从左到右合并bigram，
+然后过滤token数$< 5$的短文档，写入最终JSONL。
+\end{enumerate}
+
+
+% -------------------------------------------------------------------
+\subsection{MIN\_TOKENS过滤}
+% -------------------------------------------------------------------
+
+bigram合并之后，如果一条文档的token数$< 5$就直接丢弃，不写入最终产物。
+
+理由：token太少的文档信息量不够，
+后面folding-in推断时会被先验$\alpha$主导，算出来的主题分布基本就是均匀分布，
+entropy偏高，会系统性地高估综合性。与其留着制造噪声，不如直接删掉。
+
+门槛选5是比较保守的——
+上一版也是5，实测丢弃率只有2.35\%，影响不大。
+
+
+% ===================================================================
+\section{运行结果}
+\label{sec:results}
+% ===================================================================
+
+管线在jieba 8进程并行模式下运行，总耗时约3.5小时。
+
+% -------------------------------------------------------------------
+\subsection{总体统计}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{指标} & \textbf{数值} \\
+\midrule
+输入文档数 & 27,436,387 \\
+输出文档数 & 26,792,380 \\
+丢弃数（token $< 5$） & 644,007 \\
+丢弃率 & 2.35\% \\
+Bigram数量 & 200,000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+丢弃率只有2.35\%，说明绝大多数文档在经过分词和过滤之后仍然有足够的token。
+这侧面印证了之前结构化清洗的效果——如果HTML残留没清干净、特殊词没做保护，
+丢弃率会更高。
+
+
+% -------------------------------------------------------------------
+\subsection{Token长度分布}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{统计量} & \textbf{值} \\
+\midrule
+均值 & 47.0 \\
+中位数 & 37 \\
+P5 & 9 \\
+P25 & 24 \\
+P75 & 58 \\
+P95 & 117 \\
+P99 & 193 \\
+最大值 & 3,289 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+中位数37，说明典型的JD在分词过滤后大约有37个有意义的token。
+P5=9（最短的5\%文档有9个token，刚过MIN\_TOKENS=5的门槛不远），
+P95=117（最长的5\%文档有100多个token）。
+分布是典型的右偏——大部分JD中等长度，少数特别详细的JD可以到几百甚至上千个token。
+
+这个分布后续需要注意：如果不同年份的平均token数在变
+（比如近几年的JD越写越长），那LDA推断出来的entropy可能部分受长度影响，
+需要在回归分析里控制文档长度。
+
+
+% -------------------------------------------------------------------
+\subsection{Top Bigrams}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Bigram} & \textbf{频次} & \textbf{PMI} \\
+\midrule
+办公\_软件 & 3,224,796 & 5.23 \\
+客户\_需求 & 2,079,800 & 3.38 \\
+薪资\_待遇 & 2,022,284 & 5.20 \\
+法定\_节假日 & 1,986,044 & 6.14 \\
+年龄\_周岁 & 1,152,522 & 5.32 \\
+客户\_沟通 & 1,082,661 & 1.76 \\
+节日\_福利 & 1,065,705 & 5.03 \\
+承受\_压力 & 953,267 & 6.22 \\
+普通话\_标准 & 934,711 & 5.89 \\
+底薪\_提成 & 872,514 & 4.85 \\
+沟通\_表达能力 & 845,844 & 4.01 \\
+形象\_气质佳 & 819,964 & 6.96 \\
+办公\_环境 & 564,222 & 4.37 \\
+需求\_分析 & 466,686 & 2.98 \\
+技能\_培训 & 469,981 & 3.77 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+这些bigram从语义上看都是合理的——
+``办公\_软件''``客户\_需求''``薪资\_待遇''``法定\_节假日''
+都是招聘语境下非常自然的固定搭配。
+PMI值普遍在2--7之间，说明这些词对的共现确实是有统计显著性的，不是随机拼凑。
+
+值得注意的是``客户\_客户''（freq=449,502, PMI=0.63）也被选中了——
+这是因为有些JD里会重复出现``客户''这个词（``...客户关系...客户需求...客户投诉...''），
+相邻的两个``客户''被计为一个词对。PMI只有0.63，刚刚过0的门槛。
+不过数量不多，对后续分析影响可以忽略。
+
+
+% -------------------------------------------------------------------
+\subsection{每年文档数}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rr}
+\toprule
+\textbf{年份} & \textbf{文档数} \\
+\midrule
+2016 & 2,605,420 \\
+2017 & 5,966,260 \\
+2018 & 3,820,766 \\
+2019 & 1,055,514 \\
+2020 & 1,141,138 \\
+2021 & 3,916,225 \\
+2022 & 3,768,782 \\
+2023 & 2,009,137 \\
+2024 & 2,144,296 \\
+2025 & 364,842 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+2017年数据量最大（近600万条），2019--2020年最少（各约100万条）。
+2025年只有36万条是因为数据截止到2025年6月，只有半年数据。
+
+这种年份间数据量的不平衡后续需要留意——
+LDA训练时如果用了10\%全量采样，2017年的样本会远多于2019年，
+主题可能更多反映2017年的岗位特征。
+不过这是下一步LDA训练时的问题，不在这份预处理报告的范围内。
+
+
+% ===================================================================
+\section{输出文件说明}
+\label{sec:output}
+% ===================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llr}
+\toprule
+\textbf{文件} & \textbf{说明} & \textbf{大小} \\
+\midrule
+\texttt{output/processed\_corpus.jsonl} & 最终产物，每行一条文档 & 20 GB \\
+\texttt{output/preprocessing\_stats.json} & 诊断统计 & 4.8 KB \\
+\texttt{output/temp\_pass1.jsonl} & Pass 1临时文件，可删除 & 22 GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\texttt{processed\_corpus.jsonl} 每行的JSON结构：
+\begin{verbatim}
+{
+  "id": 1,
+  "year": "2016",
+  "tokens": ["客户_需求", "产品", "方案", "技术", "销售", ...],
+  "token_count": 42,
+  "is_fresh_grad": 0,
+  "platform": "智联招聘",
+  "data_source": "综合"
+}
+\end{verbatim}
+
+其中 \texttt{tokens} 是最终的token列表（已经过分词、过滤、bigram合并），
+\texttt{is\_fresh\_grad}、\texttt{platform} 和 \texttt{data\_source}
+是留给后续稳健性检验用的元数据。
+\texttt{data\_source} 是数据文件来源（``上市公司''``应届生''``综合''），
+跟 \texttt{platform} 不是一回事——platform 是招聘平台（智联、BOSS等），
+data\_source 是我们合并时打的标签。
+
+
+% ===================================================================
+\section{与上一版的主要改进}
+\label{sec:improvements}
+% ===================================================================
+
+\begin{longtable}{p{3cm}p{5.5cm}p{5.5cm}}
+\toprule
+\textbf{环节} & \textbf{上一版} & \textbf{本版} \\
+\midrule
+\endhead
+
+数据源 &
+单一来源（约860万条） &
+三源合并（约2740万条），加 \texttt{data\_source} 列标记来源 \\
+\midrule
+
+应届生标记 &
+仅检查\texttt{要求经验}1个字段（13.58\%） &
+三信号OR（要求经验 + 招聘岗位 + 招聘类别），覆盖率16.40\% \\
+\midrule
+
+特殊词保护 &
+只替换了3个（c++, c\#, .net） &
+系统性统计后替换了22+13=35个 \\
+\midrule
+
+jieba词典 &
+没有加载任何领域词典（ESCO词典部署了但没用） &
+加载了DomainWordsDict人力招聘词典（126,952词条） \\
+\midrule
+
+停词表 &
+约70个通用停词 &
+157个（新增HR修饰词、泛化动词名词、边界词、水印词） \\
+\midrule
+
+英文处理 &
+白名单9个编程语言，其余全删 &
+黑名单约50个噪声词，其余保留 \\
+\midrule
+
+Bigram筛选 &
+只用频次$\geq$20 &
+频次$\geq$20 AND PMI$>$0 \\
+\midrule
+
+诊断统计 &
+无 &
+输出完整的preprocessing\_stats.json \\
+\bottomrule
+\end{longtable}
+
+
+% ===================================================================
+\section{后续注意事项}
+\label{sec:notes}
+% ===================================================================
+
+\begin{enumerate}
+\item \textbf{文档长度随年份的变化}：需要检查各年份平均token数是否在增长。
+如果是，后续回归分析里应该控制文档长度，
+避免``JD变长 $\to$ 覆盖更多主题词 $\to$ entropy上升''的伪趋势。
+
+\item \textbf{数据源偏误}：三个数据源的行业分布、岗位层次不完全一样。
+后续应该分别对 \texttt{is\_fresh\_grad=0/1}、不同 \texttt{platform}
+以及不同 \texttt{data\_source}（上市公司/应届生/综合）的子样本
+重复主分析，看趋势是否一致。
+``应届生''数据源的 fg=1 比例肯定比``综合''高很多，这是正常的，
+毕竟那个数据本来就偏应届。
+
+\item \textbf{Bigram是跨年份统计的}：
+全部2740万条数据一起算bigram频次，
+所以近两年才出现的新词对（如``大模型\_应用''）只要频次够20就能被识别。
+实测数据量足够大，这个应该不是问题。
+
+\item \textbf{临时文件清理}：\texttt{temp\_pass1.jsonl}（22GB）确认无误后可以删除。
+\end{enumerate}
+
+
+\end{document}

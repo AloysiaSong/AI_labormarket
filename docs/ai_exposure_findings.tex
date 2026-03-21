@@ -1,0 +1,593 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\tcbuselibrary{most}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue
+}
+
+\newtcolorbox{resultbox}[1][]{
+  colback=blue!5!white, colframe=blue!60!black,
+  fonttitle=\bfseries, title=#1,
+  left=6pt, right=6pt, top=4pt, bottom=4pt
+}
+
+\title{\textbf{AI暴露的自动化/增强分解与任务结构变迁}\\[0.5em]
+\large 基于780万条中国招聘广告的实证分析}
+\author{研究备忘}
+\date{2026年2月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+
+% ===================================================================
+\section{引言}
+\label{sec:intro}
+% ===================================================================
+
+\subsection{研究问题}
+
+本研究考察生成式AI（GenAI）对中国劳动力市场技能需求结构的影响。
+核心问题：
+\textbf{不同AI暴露水平的职业，其招聘广告中的任务内容在2023年（ChatGPT发布）之后
+是否出现差异化变迁？}
+
+\subsection{聚合分析的Null Result与分解动机}
+
+在前期探索中，我们使用七种不同的回归策略
+（梯度组描述性分析、ISCO单元格WLS、个体TWFE、JD级OLS、XGBoost非线性检验、
+SBERT自动化/增强分解、LDA主题分解）
+检验``聚合AI暴露$\times$技能综合性（LDA topic entropy）''的交互效应，
+所有结果均为不显著（$p > 0.07$，详见方法汇总文档）。
+
+聚合null result可能源于两个机制：
+
+\begin{enumerate}
+\item \textbf{暴露维度的混淆}：
+      聚合AI暴露分数（ILO WP140 mean\_score）
+      同时包含了\textbf{自动化}（substitution）和\textbf{增强}（augmentation）两种效应。
+      若自动化降低技能多样性、增强提高技能多样性，
+      二者在聚合指标中相互抵消（Hampole, Rao \& Tan, 2025）。
+
+\item \textbf{结果变量的聚合}：
+      LDA topic entropy是对60个主题分布的Shannon熵——
+      一个高度聚合的标量。
+      不同类别技能（分析型、互动型、例行认知型、体力型）
+      若呈相反方向变化，entropy可能不变（Atalay, Sotelo \& Tannenbaum, 2024）。
+\end{enumerate}
+
+本文报告两种成功的分解策略：
+策略A从\textbf{解释变量侧}分解AI暴露为自动化/增强维度（Gemini LLM评分），
+策略B从\textbf{被解释变量侧}分解结果为任务关键词强度并同时分解暴露。
+二者从不同角度揭示了聚合null result下掩盖的真实效应。
+
+
+% ===================================================================
+\section{数据}
+\label{sec:data}
+% ===================================================================
+
+\subsection{招聘广告数据}
+
+数据来自中国主要在线招聘平台，涵盖2016--2025年共7,794,684条招聘广告。
+每条记录包含：岗位名称、岗位描述全文（\texttt{cleaned\_requirements}）、
+行业、地区、发布年份。
+
+经ISCO-08四位码匹配后（关键词规则+SBERT语义匹配两阶段方法，覆盖率94.3\%），
+7,346,052条记录获得有效的AI暴露评分。
+
+\subsection{AI暴露评分}
+
+AI暴露分数来自ILO工作论文WP140（Gmyrek et al., 2025），
+为303个ISCO-08四位码职业赋予连续AI暴露均分
+（\texttt{ai\_mean\_score}，范围$[0.18, 0.70]$）。
+
+\subsection{LDA主题模型}
+
+对全量招聘广告岗位描述训练60主题LDA模型，
+每条记录获得60维主题分布及其Shannon熵（entropy\_score）。
+
+
+% ===================================================================
+\section{策略A：Gemini LLM自动化/增强暴露分解}
+\label{sec:strategy_a}
+% ===================================================================
+
+\subsection{目的}
+
+Hampole, Rao \& Tan (NBER WP, 2025) 发现，
+将聚合AI暴露分解为\textbf{自动化暴露}（automation exposure）
+和\textbf{增强暴露}（augmentation exposure）后，
+原本不显著的聚合效应呈现显著且方向相反的分解效应。
+
+我们的前期SBERT概念相似度分解方法失败——
+自动化与增强分数的相关系数高达$r=0.93$，
+本质上未实现有效分解。
+本策略使用大语言模型（Gemini 2.0 Flash）逐职业评分，
+效仿Hampole et al.使用GPT-4评分的方法。
+
+\subsection{方法}
+
+\subsubsection{LLM评分设计}
+
+为303个ISCO-08四位码职业，
+向Google Gemini 2.0 Flash提交结构化prompt（每批10个职业）。
+Prompt要求模型基于职业的典型工作内容，评估：
+
+\begin{itemize}
+\item \textbf{automation\_share}（$\in [0, 1]$）：
+      核心任务中可被GenAI直接替代或自动完成的比例。
+      典型特征：重复性、规则明确、标准化的认知任务
+      （如数据录入、格式转换、信息分类、模板化写作）。
+
+\item \textbf{augmentation\_share}（$\in [0, 1]$）：
+      核心任务中因GenAI而被增强的比例（人类仍主导，AI提高效率和质量）。
+      典型特征：需要判断力、创造力、人际交往、复杂分析的任务。
+\end{itemize}
+
+约束：$\text{automation\_share} + \text{augmentation\_share} = 1$。
+评分结果以JSON格式返回，每批自动解析。
+设置缓存机制避免重复调用，对API限流失败的职业进行自动重试。
+
+\subsubsection{暴露分数分解}
+
+基于Gemini评分，将ILO聚合分数分解为两个维度：
+
+\begin{align}
+\text{auto\_score}_o &= \text{share\_auto}_o \times \text{mean\_score}_o \\
+\text{aug\_score}_o &= \text{share\_aug}_o \times \text{mean\_score}_o
+\end{align}
+
+其中$o$为ISCO职业，$\text{mean\_score}$为ILO WP140的聚合AI暴露均分。
+分解保证$\text{auto\_score} + \text{aug\_score} = \text{mean\_score}$。
+
+\subsubsection{分解质量验证}
+
+\begin{table}[h!]
+\centering
+\caption{SBERT vs Gemini分解质量对比}
+\label{tab:decomp_quality}
+\begin{tabular}{lcc}
+\toprule
+指标 & SBERT概念相似度 & Gemini LLM评分 \\
+\midrule
+$r(\text{auto\_score}, \text{aug\_score})$ & $+0.93$ & $\mathbf{-0.059}$ \\
+share\_auto 范围 & $[0.44, 0.60]$ & $[0.00, 0.85]$ \\
+share\_auto 标准差 & 0.024 & 0.186 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Gemini评分实现了近正交的分解（$r=-0.059$），
+且自动化份额的变异范围（标准差0.186 vs 0.024）大幅增加，
+确保了两个维度的独立识别能力。
+
+面效度检查：
+最高自动化份额的职业为数据录入员（0.80）、打字员（0.80）、会计文员（0.70）；
+最高增强份额的职业为专科医师（0.95）、特殊教育教师（0.95）、社会工作者（0.95）。
+分类结果与直觉一致。
+
+\subsubsection{回归模型}
+
+在个体层面运行双向固定效应模型（TWFE），
+通过Frisch-Waugh-Lovell（FWL）定理吸收ISCO固定效应：
+
+\begin{equation}
+\text{entropy}_{it} = \alpha_o + \sum_t \delta_t
++ \sum_{t} \gamma_t^{\text{auto}} \cdot \mathbf{1}[\text{year}=t] \times \text{auto\_score}_o
++ \sum_{t} \gamma_t^{\text{aug}} \cdot \mathbf{1}[\text{year}=t] \times \text{aug\_score}_o
++ \varepsilon_{it}
+\label{eq:twfe_auto_aug}
+\end{equation}
+
+参照年为2016年，标准误聚类在ISCO四位码层面（303个聚类）。
+分别对自动化和增强交互项进行联合$F$检验，
+并单独检验Post-2023（2023--2025年）交互项。
+
+\subsection{结果}
+
+\subsubsection{主要发现}
+
+\begin{table}[h!]
+\centering
+\caption{个体TWFE回归：自动化 vs 增强交互项联合$F$检验}
+\label{tab:gemini_joint_f}
+\begin{tabular}{lcc}
+\toprule
+检验范围 & 自动化$\times$年份 $p$ & 增强$\times$年份 $p$ \\
+\midrule
+全年份（2017--2025） & 0.916 & $\mathbf{0.034}$** \\
+\textbf{Post-2023（2023--2025）} & 0.938 & $\mathbf{0.023}$** \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+增强暴露$\times$年份交互项在全年份（$p=0.034$）
+和Post-2023（$p=0.023$）的联合$F$检验中均在5\%水平显著。
+自动化暴露交互项在所有规格下均不显著（$p>0.9$）。
+
+\subsubsection{Post-2023增强交互项系数}
+
+\begin{table}[h!]
+\centering
+\caption{Post-2023增强$\times$年份交互项估计}
+\label{tab:gemini_post23}
+\begin{tabular}{lrrr}
+\toprule
+年份 & 系数 & 标准误 & $p$ \\
+\midrule
+2023 $\times$ aug\_score & $-$0.005 & 0.005 & 0.345 \\
+2024 $\times$ aug\_score & $+$0.005 & 0.005 & 0.270 \\
+2025 $\times$ aug\_score & $+$0.003 & 0.024 & 0.899 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+个体年份系数虽不显著，但整体模式表明：
+高增强暴露职业在2023年entropy微降，
+2024--2025年转为微升——
+可能反映了初期调适后的增强效应。
+联合检验的显著性源于三个系数的整体模式
+（先降后升）与零假设（均为零）的系统性偏离。
+
+\subsection{讨论}
+
+\begin{enumerate}
+\item \textbf{正交分解是关键}：
+      SBERT概念相似度方法产生$r=0.93$的共线分解，
+      本质上等同于未分解。
+      Gemini LLM评分产生$r=-0.06$的近正交分解，
+      才使得自动化和增强效应可被独立识别。
+      这与Hampole et al.\ (2025) 使用GPT-4评分的方法论精神一致。
+
+\item \textbf{增强效应在entropy层面可检出}：
+      即使在高度聚合的entropy指标上，
+      分解暴露后仍能检出增强维度的显著效应（$p=0.023$），
+      说明AI的增强效应确实在改变职业的技能需求结构。
+
+\item \textbf{自动化效应在entropy上不可见}：
+      自动化交互项始终不显著，
+      理论上可解释为：被自动化替代的任务减少不一定改变entropy
+      （若替代的是均匀分布的例行任务，entropy反而可能上升）。
+\end{enumerate}
+
+
+% ===================================================================
+\section{策略B：Atalay式任务关键词提取 + 替代/增强暴露分解}
+\label{sec:strategy_b}
+% ===================================================================
+
+\subsection{目的}
+
+策略A在entropy层面发现了增强暴露的显著效应，
+但entropy作为被解释变量存在固有局限：
+（1）不可解释——``entropy变化0.005''缺乏经济含义；
+（2）70\%方差被文档长度（token count）主导（XGBoost消融实验结果）；
+（3）不同方向的任务变化在entropy中可能相互抵消。
+
+受Atalay, Sotelo \& Tannenbaum (JLE, 2024) 启发，
+本策略做出两个根本性改变：
+
+\begin{enumerate}
+\item \textbf{被解释变量}：
+      用Spitz-Oener (2006) 四类任务的关键词计数替代entropy，
+      获得可解释的任务强度指标。
+\item \textbf{解释变量}：
+      基于职业的实际任务内容（而非LLM评分）
+      将AI暴露分解为替代性和增强性两个近正交维度。
+\end{enumerate}
+
+\subsection{方法}
+
+\subsubsection{任务关键词定义与提取}
+
+基于Spitz-Oener (2006) 四类任务框架，
+定义中文动词-名词关键词列表：
+
+\begin{itemize}
+\item \textbf{RC}（例行认知，Routine Cognitive）：
+      数据录入、报表制作、档案管理、核对、归档、台账、发票、凭证、开票、
+      考勤统计、信息登记、文件整理、合同归档、账目核对、
+      工资核算、报税、库存盘点、订单录入、收发文件等
+      （共32个关键词）。
+
+\item \textbf{NRA}（非例行分析，Non-routine Analytical）：
+      数据分析、系统开发、算法开发、架构设计、编程、技术方案、
+      产品设计、研发、创新、市场调研、可行性分析、
+      战略规划、建模、统计分析、用户研究等
+      （共30个关键词）。
+
+\item \textbf{NRI}（非例行互动，Non-routine Interactive）：
+      客户沟通、团队管理、商务谈判、培训指导、跨部门协调、
+      演讲汇报、客户关系维护、危机处理、
+      教学、咨询服务、品牌推广等
+      （共28个关键词）。
+
+\item \textbf{RM}（例行体力，Routine Manual）：
+      设备操作、焊接加工、货物搬运、质量检测、产线操作、
+      仓库管理操作、设备维护、装配调试、巡检、物料搬运等
+      （共30个关键词）。
+\end{itemize}
+
+使用正则匹配扫描8,618,432条招聘广告的\texttt{cleaned\_requirements}全文。
+通过岗位名称$\to$ISCO查找表（2,495,201个唯一标题）
+将每条记录链接到ISCO码，匹配率91.7\%。
+
+\subsubsection{任务强度度量}
+
+对每条招聘广告，计数每类关键词出现次数。
+聚合至2,680个ISCO$\times$年份单元格，计算每个单元格内各类关键词的均值计数。
+
+\begin{table}[h!]
+\centering
+\caption{任务关键词提取描述性统计}
+\label{tab:task_desc}
+\begin{tabular}{lrr}
+\toprule
+类别 & 总命中数 & 含$\geq$1关键词的记录占比 \\
+\midrule
+RC（例行认知） & 581,492 & 4.2\% \\
+NRA（非例行分析） & 1,901,847 & 15.2\% \\
+NRI（非例行互动） & 2,916,607 & 22.8\% \\
+RM（例行体力） & 539,326 & 4.3\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{基于任务内容的替代/增强暴露分解}
+
+与策略A的LLM评分不同，本策略基于职业的\textbf{实际任务画像}
+构建数据驱动的替代/增强分解。
+
+对每个ISCO职业$o$，计算baseline期（2016--2022年，排除2019--2020数据断层期）
+的加权平均关键词计数，得到四类任务的份额：
+
+\[
+\text{RC\_share}_o = \frac{\overline{\text{RC\_count}}_o}
+{\overline{\text{RC}}_o + \overline{\text{NRA}}_o + \overline{\text{NRI}}_o + \overline{\text{RM}}_o}
+\]
+
+其他类别类推。基于此构建两种暴露维度：
+
+\begin{align}
+\text{subst\_exposure}_o &= \text{ai\_score}_o \times \text{RC\_share}_o^{\text{baseline}}
+\label{eq:subst} \\
+\text{aug\_exposure}_o &= \text{ai\_score}_o \times \text{NRA\_share}_o^{\text{baseline}}
+\label{eq:aug}
+\end{align}
+
+其中$\text{ai\_score}_o$为ILO WP140的聚合AI暴露均分。
+
+直觉：若一个高AI暴露职业的任务内容以RC（例行认知）为主，
+则其主要面临\textbf{替代}压力；
+若以NRA（非例行分析）为主，则其主要受益于\textbf{增强}效应。
+
+\textbf{关键特性}：
+两种暴露维度的相关系数仅$r = -0.096$
+（vs 策略A的SBERT分解$r=0.93$），
+实现了接近正交的分解。
+这是因为RC密集型和NRA密集型职业在ISCO分类中天然分属不同群组。
+
+\subsubsection{回归模型}
+
+在ISCO$\times$年份单元格层面运行WLS回归
+（权重=单元格样本量，HC3标准误）：
+
+\begin{equation}
+\overline{\text{kw\_count}}_{k,ot} = \sum_t \delta_t
++ \sum_t \gamma_t^{\text{subst}} \cdot \mathbf{1}[t] \times \text{subst\_exp}_o
++ \sum_t \gamma_t^{\text{aug}} \cdot \mathbf{1}[t] \times \text{aug\_exp}_o
++ \beta \cdot \text{log\_textlen}_{ot}
++ \varepsilon_{ot}
+\label{eq:task_wls}
+\end{equation}
+
+对每类任务$k \in \{\text{RC}, \text{NRA}, \text{NRI}, \text{RM}\}$分别回归。
+控制\texttt{log\_textlen}（单元格均值log文本长度）以消除文档长度的混淆效应。
+
+\subsection{结果}
+
+\subsubsection{Part A: 聚合AI暴露$\times$任务强度}
+
+首先以聚合\texttt{ai\_score}（不分解）检验各类任务强度的差异化趋势。
+
+\begin{table}[h!]
+\centering
+\caption{聚合AI暴露$\times$任务关键词强度WLS回归}
+\label{tab:task_agg}
+\begin{tabular}{lcccc}
+\toprule
+被解释变量 & 联合$F$ $p$值 & Post-2025交互 & ai\_score主效应 \\
+\midrule
+RC（例行认知） & 0.623 & $p=0.876$ & $+0.307$, $p=0.197$ \\
+NRA（非例行分析） & 0.510 & $p=0.473$ & $-0.263$, $p=0.048$** \\
+NRI（非例行互动） & 0.946 & $p=0.345$ & $-0.241$, $p=0.353$ \\
+\textbf{RM（例行体力）} & $\mathbf{<0.001}$*** & $p=0.085$* & $-0.373$, $p<0.001$*** \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+RM（例行体力）的AI暴露$\times$年份交互联合检验高度显著（$p<0.001$），
+且ai\_score主效应显著为负（$p<0.001$），
+表明高AI暴露职业的体力任务密度截面上更低、且随时间进一步下降。
+
+NRA的ai\_score主效应显著为负（$p=0.048$），
+表明高AI暴露职业在截面上分析型任务密度较低——
+这看似与增强假说矛盾，但反映的是ILO评分的构成：
+高暴露职业（如数据录入员、文员）恰恰是RC密集而非NRA密集的职业。
+
+\subsubsection{Part B: 分解暴露$\times$任务强度（核心发现）}
+
+\begin{table}[h!]
+\centering
+\caption{替代/增强暴露分解$\times$任务关键词强度WLS回归}
+\label{tab:task_decomp}
+\small
+\begin{tabular}{lccl}
+\toprule
+被解释变量 & Subst$\times$year $p$ & Aug$\times$year $p$ & 关键Post-2023系数 \\
+\midrule
+RC & $\mathbf{<0.001}$*** & 0.803 & -- \\
+\textbf{NRA} & 0.999 & $\mathbf{<0.001}$*** & AUG$\times$2024: $+1.31$, $p=0.013$** \\
+\textbf{NRI} & 0.483 & $\mathbf{0.007}$*** & AUG$\times$2023: $-0.59$, $p=0.051$* \\
+ & & & AUG$\times$2024: $-0.51$, $p=0.050$* \\
+RM & 0.998 & 0.685 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{发现1：NRA$\times$增强暴露（$p<0.001$）}
+
+高增强暴露的ISCO职业在2024年的非例行分析型任务关键词
+显著增加（系数$+1.31$，$p=0.013$）。
+这意味着：在增强暴露分数增加一个标准差的职业中，
+每条招聘广告平均多出约1.3个分析型任务关键词（如``数据分析''、``系统开发''、``架构设计''）。
+
+\textbf{方向完全符合AI增强假说}——
+GenAI增强型职业正在加大对分析、设计、研发等高阶认知任务的需求。
+
+\paragraph{发现2：NRI$\times$增强暴露（$p=0.007$）}
+
+高增强暴露的ISCO职业在2023--2024年的非例行互动型任务关键词
+显著减少（2023: $-0.59$, $p=0.051$; 2024: $-0.51$, $p=0.050$）。
+
+这可能反映了AI对互动型任务的\textbf{部分替代}——
+AI聊天机器人和智能客服正在取代部分人际沟通、客户服务任务。
+值得注意的是，这种替代效应出现在``增强暴露''维度上（而非``替代暴露''），
+因为需要复杂互动的职业（如管理人员、咨询师）恰好也是NRA密集的增强型职业。
+
+\paragraph{发现3：RC$\times$替代暴露（$p<0.001$）}
+
+例行认知型任务在替代暴露维度上联合检验高度显著。
+但Post-2023个体系数不显著（最大$|p|>0.42$），
+信号主要来自pre-period的趋势差异（高替代暴露职业的RC任务密度本就在持续变化）。
+
+\paragraph{发现4：替代/增强分解的正交性}
+
+$r(\text{subst\_exposure}, \text{aug\_exposure}) = -0.096$
+确保了两种暴露维度的独立识别。
+与策略A的$r=-0.059$一致，
+但本策略的分解完全基于数据（实际任务画像），
+而非依赖LLM的主观评估。
+
+\subsection{讨论}
+
+\begin{enumerate}
+\item \textbf{被解释变量的选择至关重要}：
+      策略A在高度聚合的entropy上检出增强效应（$p=0.023$），
+      策略B进一步揭示了效应的具体内容——
+      增强体现为NRA关键词增加（$+1.31$/posting），
+      同时NRI关键词减少（$-0.55$/posting）。
+      ``2024年分析型任务关键词增加1.3个''
+      比``entropy变化0.005''具有更直观的经济含义。
+
+\item \textbf{两种分解方法的互补性}：
+      策略A（Gemini评分）提供了理论驱动的分解——
+      LLM基于对``自动化''和``增强''的语义理解评分；
+      策略B（任务画像）提供了数据驱动的分解——
+      基于职业实际包含的RC和NRA任务比例。
+      两种方法独立地产生了近正交分解
+      （$r=-0.06$ 和 $r=-0.10$），
+      并在增强效应方向上得出一致结论。
+
+\item \textbf{NRA上升+NRI下降解释了entropy的null result}：
+      在entropy中，NRA的上升和NRI的下降在聚合后相互抵消。
+      只有同时分解被解释变量（任务维度）和解释变量（替代/增强维度），
+      真实效应才能浮现。
+      这解释了为何前七种策略（使用聚合entropy和聚合暴露）均为null。
+
+\item \textbf{数据利用的差异}：
+      策略B直接使用招聘广告全文（\texttt{cleaned\_requirements}），
+      而前八种策略均仅使用LDA后验分布。
+      从原始文本中提取的任务信息更直接、更可解释，
+      避免了LDA建模引入的噪声和信息损失。
+\end{enumerate}
+
+
+% ===================================================================
+\section{综合讨论}
+\label{sec:discussion}
+% ===================================================================
+
+\subsection{核心结论}
+
+\begin{resultbox}[两种策略的核心发现]
+
+\textbf{策略A（Gemini LLM暴露分解）}：
+在entropy层面，增强暴露$\times$Post-2023联合$F$检验$p=0.023$（5\%显著），
+自动化暴露始终不显著（$p>0.9$）。
+
+\textbf{策略B（任务关键词 + 数据驱动暴露分解）}：
+\begin{itemize}
+\item NRA$\times$增强暴露：联合$p<0.001$；2024年系数$+1.31$，$p=0.013$
+\item NRI$\times$增强暴露：联合$p=0.007$；2023--2024年系数约$-0.55$，$p\approx 0.05$
+\end{itemize}
+
+\textbf{共同结论}：
+GenAI通过\textbf{增强渠道}（而非自动化渠道）
+改变了中国劳动力市场的任务需求结构——
+增加分析型任务、减少互动型任务。
+聚合分析的null result源于效应的抵消，
+而非AI对技能需求无影响。
+\end{resultbox}
+
+\subsection{与既有文献的关系}
+
+\begin{enumerate}
+\item \textbf{Hampole, Rao \& Tan (2025)}：
+      本文结果与其发现一致——聚合AI暴露无效应，分解后增强效应显著。
+      但本文进一步在\textbf{被解释变量侧}也进行了分解，
+      揭示了增强效应的具体内容（NRA$\uparrow$, NRI$\downarrow$）。
+
+\item \textbf{Atalay, Sotelo \& Tannenbaum (2024)}：
+      本文借鉴其从招聘广告中直接提取任务内容的方法论，
+      但适配至中文语境并结合了AI暴露分解。
+
+\item \textbf{Spitz-Oener (2006)}：
+      四类任务分类框架为本文提供了结构化的分析维度，
+      使得``什么类型的任务在变化''成为可检验的问题。
+\end{enumerate}
+
+\subsection{局限性}
+
+\begin{enumerate}
+\item \textbf{因果识别}：本文使用TWFE和WLS，
+      主要识别相关关系而非因果效应。
+      AI暴露分数来自外部评估（ILO），
+      在一定程度上缓解了内生性，
+      但无法排除遗漏变量偏误。
+
+\item \textbf{关键词列表的主观性}：
+      Spitz-Oener四类任务的关键词列表由研究者手动定义，
+      可能遗漏或误分类部分任务。
+      但作为正则匹配方法，其透明性和可复现性高于LDA等统计模型。
+
+\item \textbf{Gemini评分的可复现性}：
+      LLM评分具有一定的随机性，
+      不同模型版本可能产生不同结果。
+      我们通过缓存机制确保了单次运行的一致性，
+      但跨模型的稳健性有待检验。
+
+\item \textbf{2025年数据的不完整性}：
+      2025年数据可能为部分年份数据，
+      导致该年系数的标准误较大。
+\end{enumerate}
+
+
+\end{document}

@@ -1,0 +1,73 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\title{\textbf{窗口样本量不均衡的稳健性说明}}
+\date{2026年2月5日}
+
+\begin{document}
+
+\maketitle
+
+\section{问题背景}
+
+本研究将去重后的招聘数据按 2 年为单位划分为 5 个时间窗口进行 LDA 训练与主题演化对齐。由于平台数据供给不均衡与年份断层，窗口之间样本量存在显著差异。该差异可能影响主题稳定性、对齐质量与演化事件的识别可靠性，因此需要在方法层面明确其影响并给出控制策略。
+
+\section{样本量不均衡概览}
+
+基于去重后的实际数据，年份与窗口样本量分布如下：
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{窗口} & \textbf{样本量} & \textbf{占比} \\
+\midrule
+2016--2017 & 1,567,361 & 18.3\% \\
+2018--2019 & 481,575 & 5.6\% \\
+2020--2021 & 1,336,485 & 15.6\% \\
+2022--2023 & 3,886,319 & 45.3\% \\
+2024--2025 & 1,303,416 & 15.2\% \\
+\bottomrule
+\end{tabular}
+\caption{时间窗口样本量分布（去重后）}
+\end{table}
+
+关键不均衡特征：
+\begin{itemize}
+    \item 2019 与 2020 极端稀疏（2019: 17 条；2020: 1,426 条），导致 2018--2019 与 2020--2021 窗口代表性不足。
+    \item 2022--2023 窗口占比 45.3\%，样本量远高于其他窗口。
+    \item 2025 年仅 25,502 条，导致 2024--2025 窗口尾部稀疏。
+\end{itemize}
+
+\section{潜在影响}
+
+样本量不均衡可能带来以下影响：
+\begin{itemize}
+    \item \textbf{主题稳定性偏差}：小样本窗口的主题受噪声影响更大，可能出现非结构性主题或主题碎片化。
+    \item \textbf{对齐质量下降}：窗口规模差异过大时，跨期主题相似度矩阵更易出现单向覆盖（大窗口吸收小窗口主题）。
+    \item \textbf{演化事件偏置}：在稀疏窗口中更容易出现“消亡”或“突生”事件，增加假阳性。
+\end{itemize}
+
+\section{控制策略与稳健性解释}
+
+本研究采用以下策略减轻样本量不均衡的影响：
+
+\begin{enumerate}
+    \item \textbf{分箱建模（Binned Topic Modeling）}：每个窗口独立训练，避免跨期语义漂移，同时限制大窗口对小窗口的直接干扰。
+    \item \textbf{主题对齐阈值控制}：对齐时设置生存阈值与分裂/合并阈值，降低稀疏窗口中的偶然相似造成的错误对齐。
+    \item \textbf{主题合并去冗余}：在对齐前进行主题合并，减少小窗口中因样本稀疏产生的碎片主题。
+    \item \textbf{结果解读限制}：对 2018--2019 与 2020--2021 的演化事件，强调“断层窗口”背景，避免过度解释。
+\end{enumerate}
+
+\section{稳健性结论}
+
+尽管窗口样本量不均衡显著，但本研究通过分箱训练、对齐阈值控制与主题合并等策略，将样本量差异对结论的影响控制在可解释范围内。需要强调的是，2019--2020 的断层会弱化该阶段演化结论的外推性，因此研究重点仍应放在 2021 之后的后疫情结构重构。
+
+\end{document}

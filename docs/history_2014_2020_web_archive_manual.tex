@@ -1,0 +1,225 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\geometry{margin=2.5cm}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{gray!40}
+}
+
+\title{历史段（2014--2020）网页档案补数操作手册\\Wayback CDX + Common Crawl}
+\author{}
+\date{2026-02-10}
+
+\begin{document}
+\maketitle
+
+\section{目标与边界}
+本手册用于补充历史段（2014--2020）招聘文本数据，采用两条免费路径：
+\begin{itemize}
+    \item Wayback Machine（CDX）列快照并抓取网页文本；
+    \item Common Crawl 索引补充抓取。
+\end{itemize}
+
+\textbf{边界必须写清：}该方法得到的是\textbf{存档样本}，不是平台全量历史库。论文和报告中不得表述为“全站全量恢复”。
+
+\section{推荐目录结构}
+在项目根目录（\texttt{code2601/TY}）下新增：
+\begin{lstlisting}[language=bash]
+data/archive_recovery/
+  seeds/
+    seed_urls.csv
+  wayback/
+    cdx_index.csv
+    snapshots_raw/
+    snapshots_text.parquet
+  commoncrawl/
+    cc_index_hits.jsonl
+    cc_text.parquet
+  merged/
+    history_2014_2020_sample.parquet
+    coverage_by_year.csv
+    source_mix_by_year.csv
+\end{lstlisting}
+
+\section{环境准备}
+\begin{lstlisting}[language=bash]
+cd /Users/yu/code/code2601/TY
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -U pip
+python3 -m pip install requests pandas pyarrow tqdm trafilatura
+\end{lstlisting}
+
+\section{步骤一：准备种子 URL}
+\subsection{优先级}
+\begin{itemize}
+    \item 优先使用你已有数据中的历史职位 URL（若存在）；
+    \item 若无职位 URL，则使用企业招聘页/列表页 URL 作为替代种子；
+    \item 每条种子需带 \texttt{domain}、\texttt{url}、\texttt{platform} 字段。
+\end{itemize}
+
+\subsection{种子文件格式}
+\texttt{data/archive\_recovery/seeds/seed\_urls.csv} 示例：
+\begin{lstlisting}
+domain,url,platform
+zhaopin.com,https://jobs.zhaopin.com/123456789.htm,zhaopin
+51job.com,https://jobs.51job.com/shanghai/987654321.html,51job
+bosszhipin.com,https://www.zhipin.com/job_detail/abcdef.html,boss
+\end{lstlisting}
+
+\section{步骤二：Wayback CDX 枚举快照}
+\subsection{CDX 查询规则}
+推荐参数：
+\begin{itemize}
+    \item 时间窗：\texttt{from=201401}, \texttt{to=202012}
+    \item 仅保留成功页：\texttt{filter=statuscode:200}
+    \item 仅保留 HTML：\texttt{filter=mimetype:text/html}
+    \item 去重：\texttt{collapse=digest}
+\end{itemize}
+
+\subsection{单 URL 示例命令}
+\begin{lstlisting}[language=bash]
+curl -L "https://web.archive.org/cdx/search/cdx?url=https://jobs.zhaopin.com/123456789.htm&from=201401&to=202012&output=json&fl=timestamp,original,mimetype,statuscode,digest,length&filter=statuscode:200&filter=mimetype:text/html&collapse=digest"
+\end{lstlisting}
+
+\subsection{批量抓取（Python 示例）}
+\begin{lstlisting}[language=Python]
+import requests, pandas as pd, time
+from pathlib import Path
+
+seed = pd.read_csv("data/archive_recovery/seeds/seed_urls.csv")
+rows = []
+for _, r in seed.iterrows():
+    q = {
+        "url": r["url"], "from": "201401", "to": "202012",
+        "output": "json",
+        "fl": "timestamp,original,mimetype,statuscode,digest,length",
+        "filter": ["statuscode:200", "mimetype:text/html"],
+        "collapse": "digest",
+    }
+    resp = requests.get("https://web.archive.org/cdx/search/cdx", params=q, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if len(data) <= 1:
+        continue
+    cols = data[0]
+    for x in data[1:]:
+        d = dict(zip(cols, x))
+        d["platform"] = r["platform"]
+        d["domain"] = r["domain"]
+        rows.append(d)
+    time.sleep(0.4)
+
+Path("data/archive_recovery/wayback").mkdir(parents=True, exist_ok=True)
+pd.DataFrame(rows).to_csv("data/archive_recovery/wayback/cdx_index.csv", index=False)
+\end{lstlisting}
+
+\section{步骤三：下载快照并抽取文本}
+\subsection{快照 URL 规则}
+Wayback 快照正文地址格式：
+\begin{lstlisting}
+https://web.archive.org/web/{timestamp}id_/{original}
+\end{lstlisting}
+
+\subsection{抽取要点}
+\begin{itemize}
+    \item 使用 \texttt{trafilatura} 或自定义规则抽正文；
+    \item 记录字段：\texttt{capture\_time}、\texttt{original\_url}、\texttt{text}、\texttt{source=wayback}；
+    \item \texttt{capture\_time} 转成年份作为 \texttt{archive\_year}。
+\end{itemize}
+
+\section{步骤四：Common Crawl 补充抓取}
+\subsection{用途}
+当 Wayback 对某域覆盖不足时，使用 Common Crawl 索引补充。其优势是覆盖时间长、免费；缺点是定位到“职位页面”的精确度低于已知 URL 回溯。
+
+\subsection{索引查询示例}
+\begin{lstlisting}[language=bash]
+curl -L "https://index.commoncrawl.org/CC-MAIN-2020-24-index?url=jobs.zhaopin.com/*&output=json"
+\end{lstlisting}
+
+\subsection{执行建议}
+\begin{itemize}
+    \item 先按年份抽取若干个 \texttt{CC-MAIN} 索引批次；
+    \item 仅保留目标域名与职位页路径模式；
+    \item 下载后抽文本，保存 \texttt{source=commoncrawl}。
+\end{itemize}
+
+\section{步骤五：合并、去重与结构化}
+\subsection{去重键建议}
+\begin{itemize}
+    \item 强去重：\texttt{hash(normalized\_text)}
+    \item 弱去重：\texttt{domain + title + company + month}
+\end{itemize}
+
+\subsection{输出主表字段}
+建议统一为：
+\begin{longtable}{ll}
+\toprule
+字段 & 说明 \\
+\midrule
+\endfirsthead
+\toprule
+字段 & 说明 \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\texttt{archive\_year} & 2014--2020 年份 \\
+\texttt{capture\_time} & 快照时间戳 \\
+\texttt{source} & \texttt{wayback} 或 \texttt{commoncrawl} \\
+\texttt{domain} & 来源域名 \\
+\texttt{original\_url} & 原始链接 \\
+\texttt{title\_guess} & 解析得到的标题 \\
+\texttt{company\_guess} & 解析得到的公司名 \\
+\texttt{text} & 正文文本 \\
+\texttt{text\_hash} & 去重哈希 \\
+\bottomrule
+\end{longtable}
+
+\section{步骤六：覆盖率与质量检查}
+至少输出两张表：
+\begin{itemize}
+    \item \texttt{coverage\_by\_year.csv}：每年样本量、唯一 URL 数、唯一公司数；
+    \item \texttt{source\_mix\_by\_year.csv}：每年 Wayback/CC 占比。
+\end{itemize}
+
+\subsection{最低可用阈值（建议）}
+\begin{itemize}
+    \item 年样本量低于主分析期均值的 20\% 时，仅作描述性展示；
+    \item 对每年随机抽样 100 条做人工核验（是否真为招聘内容）。
+\end{itemize}
+
+\section{论文写法模板（可直接改）}
+\textbf{数据说明模板：}
+“本文 2014--2020 年招聘文本采用网页档案回溯法获取，包括 Wayback CDX 快照与 Common Crawl 索引补充。该部分为存档样本而非平台全量历史库，主要用于趋势参考与稳健性检验，不用于全量规模推断。”
+
+\textbf{稳健性模板：}
+“核心结论基于主样本期（2021--2025）。纳入 2014--2020 存档样本后，方向一致/部分弱化，说明结论对历史段样本稀疏具有一定稳健性。”
+
+\section{常见问题与处理}
+\begin{itemize}
+    \item CDX 返回空：目标 URL 可能从未被存档，改用列表页或公司招聘主页。
+    \item 文本乱码：统一按 UTF-8 解码，失败时做多编码兜底。
+    \item 抓取太慢：并发控制在低水平，增加重试与断点续跑。
+    \item 年份偏移：优先使用 \texttt{capture\_time} 年份；不要用“当前抓取时间”替代。
+\end{itemize}
+
+\section{交付清单}
+完成后至少提交：
+\begin{itemize}
+    \item \texttt{data/archive\_recovery/merged/history\_2014\_2020\_sample.parquet}
+    \item \texttt{data/archive\_recovery/merged/coverage\_by\_year.csv}
+    \item \texttt{data/archive\_recovery/merged/source\_mix\_by\_year.csv}
+    \item 一页数据边界说明（存档样本、非全量）。
+\end{itemize}
+
+\end{document}

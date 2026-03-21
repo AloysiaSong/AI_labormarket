@@ -1,0 +1,1381 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\tcbuselibrary{most}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue
+}
+
+\newtcolorbox{resultbox}[1][]{
+  colback=blue!5!white, colframe=blue!60!black,
+  fonttitle=\bfseries, title=#1,
+  left=6pt, right=6pt, top=4pt, bottom=4pt
+}
+\newtcolorbox{failbox}[1][]{
+  colback=red!5!white, colframe=red!60!black,
+  fonttitle=\bfseries, title=#1,
+  left=6pt, right=6pt, top=4pt, bottom=4pt
+}
+
+\title{\textbf{AI暴露度指标：方法尝试汇总}\\[0.5em]
+\large 九种回归策略的实验记录\\[0.3em]
+\normalsize 成功策略的详细分析见 \texttt{ai\_exposure\_findings.tex}}
+\author{研究备忘}
+\date{2026年2月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+
+% ===================================================================
+\section{概述}
+% ===================================================================
+
+本文档系统记录在"技能综合性与AI暴露"研究中，
+围绕AI暴露度指标所做的全部方法论尝试。
+核心问题始终是：
+\textbf{不同AI暴露水平的职业/岗位，其技能综合性（主题熵）
+上升速率是否存在差异？}
+
+为回答此问题，我们在两个维度上进行了穷尽性探索：
+
+\begin{enumerate}
+\item \textbf{赋值方法}（如何为每条招聘广告分配AI暴露分数）——
+      先后尝试了ISCO职业级赋值和JD岗位级赋值；
+\item \textbf{回归策略}（如何利用AI暴露分数检验异质性趋势）——
+      依次尝试了梯度组描述性分析、ISCO单元格WLS、
+      个体双向固定效应（TWFE）、JD级个体OLS，共4种方法。
+\end{enumerate}
+
+\textbf{主要结论}：
+聚合entropy层面，AI暴露程度不预测技能综合性的差异化上升趋势。
+但在分解AI暴露为自动化/增强维度后，
+增强性暴露$\times$Post-2023在entropy层面显著（策略六Gemini版，$p=0.023$），
+在任务关键词层面高度显著（策略九，NRA$\times$aug $p<0.001$）。
+
+
+% ===================================================================
+\section{AI暴露分数赋值方法}
+\label{sec:scoring}
+% ===================================================================
+
+% -------------------------------------------------------------------
+\subsection{方法一：ISCO职业级赋值}
+\label{subsec:isco_scoring}
+% -------------------------------------------------------------------
+
+\subsubsection{数据来源}
+
+AI暴露分数来自国际劳工组织（ILO）工作论文WP140
+（Gmyrek et al., 2025），
+该框架基于大型语言模型对ISCO-08四位码职业任务的自动化可能性评估，
+为303个职业赋予连续AI暴露均分（\texttt{ai\_mean\_score}，
+范围$[0.18, 0.70]$），并将其划分为六个梯度组：
+
+\begin{table}[h!]
+\centering
+\caption{ILO AI暴露梯度定义}
+\small
+\begin{tabular}{clll}
+\toprule
+梯度 & 名称 & 条件 & 在数据中的样本量 \\
+\midrule
+G4 & 高度暴露 & $\mu \geq 0.6$，$\mu - \sigma \geq 0.5$ & 733,640 \\
+G3 & 中高暴露 & $0.5 \leq \mu < 0.6$，$\mu + \sigma \geq 0.5$ & 1,322,186 \\
+G2 & 低度暴露 & 中间条件 & 1,740,398 \\
+G1 & 最小暴露 & -- & 163,352 \\
+Minimal & 极微暴露 & -- & 817,617 \\
+Not Exposed & 未暴露 & 其余 & 2,977,509 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{岗位$\to$ISCO匹配：两阶段方法}
+
+原始招聘数据不直接提供ISCO编码，
+需将每条岗位匹配至ISCO-08四位码，才能继承对应的AI暴露分数。
+匹配分两个阶段完成：
+
+\paragraph{阶段1：关键词规则匹配（v1）}
+
+构建包含600余条规则的中文职业关键词库，
+将岗位名称中的关键词直接映射至ISCO-08四位码
+（如"数据分析师"$\to$2120、"电工"$\to$7411）。
+
+\begin{table}[h!]
+\centering
+\caption{v1关键词匹配统计}
+\begin{tabular}{lrr}
+\toprule
+匹配类型 & 条数 & 占比 \\
+\midrule
+keyword（成功） & 5,413,851 & 69.5\% \\
+unknown（未匹配） & 2,367,295 & \textbf{30.4\%} \\
+keyword\_noilo（无ILO评分） & 13,538 & 0.2\% \\
+\midrule
+总计 & 7,794,684 & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{30.4\%的未匹配率}构成严重的样本缺失问题——
+未匹配岗位以非标准化名称为主
+（"AIGC运营"、"私域增长专员"等新兴岗位），
+可能系统性地排除了AI冲击影响最大的岗位。
+
+\paragraph{阶段2：SBERT语义匹配补全（v2）}
+
+为弥补关键词规则的覆盖不足，
+使用\texttt{BAAI/bge-large-zh-v1.5}
+（1024维中文Sentence-BERT）
+对未匹配岗位进行语义匹配：
+\begin{enumerate}
+\item 将303个ISCO职业的中文主名+别名编码为向量；
+\item 对1,031,237个唯一未匹配岗位名编码；
+\item 计算余弦相似度，取最近邻；
+\item 相似度$\geq 0.55$则接受匹配。
+\end{enumerate}
+
+\begin{table}[h!]
+\centering
+\caption{v1 vs v2覆盖率对比}
+\begin{tabular}{lrr}
+\toprule
+指标 & v1（关键词） & v2（关键词+SBERT） \\
+\midrule
+成功匹配 & 5,413,851 (69.5\%) & 7,346,052 (94.3\%) \\
+未匹配 & 2,367,295 (\textbf{30.4\%}) & 435,094 (\textbf{5.6\%}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{ISCO级赋值的核心局限}
+
+匹配完成后，每条招聘广告继承其ISCO码对应的\texttt{ai\_mean\_score}。
+然而，这意味着：
+\begin{itemize}
+\item 同一ISCO码下所有岗位共享\textbf{同一个}AI暴露分数；
+\item 全部7,359,590条有效记录仅对应\textbf{49个唯一值}
+      （304个ISCO码中，许多共享相同的ILO评分）；
+\item 同ISCO码内"Java实习生"与"高级Java架构师"的AI暴露度被视为相同；
+\item 统计功效受限：在ISCO固定效应下，
+      ai\_score主效应被完全吸收，仅剩时序交互项提供识别。
+\end{itemize}
+
+\begin{failbox}[ISCO级赋值的不足]
+\textbf{49个唯一值}（数据中实际可观察的不同ai\_score值）
+远不足以支撑细粒度的异质性检验。
+这一局限直接推动了JD级赋值方法的开发。
+\end{failbox}
+
+
+% -------------------------------------------------------------------
+\subsection{方法二：JD岗位级赋值}
+\label{subsec:jd_scoring}
+% -------------------------------------------------------------------
+
+\subsubsection{核心创新}
+
+JD级赋值\textbf{不再将岗位硬性归类至单一ISCO码}，
+而是利用每条岗位名称与\textbf{所有}303个ISCO职业的语义距离，
+计算\textbf{连续加权AI暴露分数}：
+
+\[
+\texttt{jd\_ai\_score}_i = \sum_{k=1}^{5} \frac{\text{sim}(i,k)}
+{\sum_{j=1}^{5}\text{sim}(i,j)} \cdot \text{ai\_mean\_score}_k
+\]
+
+其中$\text{sim}(i,k)$为岗位名称$i$与第$k$个最相似ISCO职业的余弦相似度。
+
+\subsubsection{实现细节}
+
+\begin{enumerate}
+\item 从master数据提取2,812,572个唯一岗位名称；
+\item 使用\texttt{BAAI/bge-large-zh-v1.5}对所有岗位名称和303个ISCO职业编码
+      （按标题长度排序以减少padding浪费，batch\_size=512，
+      稳定速率130--250 titles/sec，总耗时约6小时）；
+\item 对每个岗位名称计算与所有303个ISCO职业的余弦相似度；
+\item 取top-5最相似职业的加权平均AI暴露分，权重为余弦相似度；
+\item 生成查找表后合并至master数据。
+\end{enumerate}
+
+\subsubsection{方法论优势}
+
+\begin{table}[h!]
+\centering
+\caption{ISCO级 vs JD级AI暴露分数对比}
+\label{tab:score_comparison}
+\begin{tabular}{lrr}
+\toprule
+指标 & ISCO级 & JD级 \\
+\midrule
+唯一值 & 49 & \textbf{365,472} \\
+均值 & 0.4420 & 0.4104 \\
+标准差 & 0.1170 & 0.0816 \\
+范围 & $[0.18, 0.70]$ & $[0.19, 0.65]$ \\
+两者相关系数 & \multicolumn{2}{c}{$r = 0.727$} \\
+\midrule
+\multicolumn{3}{l}{\textit{JD级变异分解}} \\
+\quad Between-ISCO std & \multicolumn{2}{c}{0.0784} \\
+\quad Within-ISCO std & \multicolumn{2}{c}{0.0399} \\
+\quad Within/Total ratio & \multicolumn{2}{c}{33.7\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+\item \textbf{变异量级}：唯一值从49$\to$365,472（增加$\sim$7,500倍）；
+\item \textbf{ISCO内异质性}：33.7\%的变异来自同一ISCO码内部，
+      这些变异在ISCO级赋值中被完全丢弃；
+\item \textbf{内生性切断}：ai\_score来自岗位名称（短文本），
+      entropy来自岗位描述正文（LDA），不同文本字段消除机械相关；
+\item \textbf{全覆盖}：所有有岗位名称的记录均可赋值，无缺失。
+\end{itemize}
+
+\subsubsection{两种赋值方法的关系}
+
+两者相关$r = 0.727$：JD级分数保留了ISCO级的跨职业排序，
+同时增加了大量ISCO内部变异。
+JD级不是对ISCO级的替代，而是\textbf{细化和扩展}——
+如果ISCO级检验已经不显著，JD级提供了更强的统计功效来确认这一结论。
+
+
+% ===================================================================
+\section{利用AI暴露分数的四种回归策略}
+\label{sec:regression}
+% ===================================================================
+
+以下按分析粒度从粗到细的顺序，
+介绍4种检验"AI暴露$\times$时间趋势"交互效应的方法。
+每种方法均使用不同的数据聚合层级和估计策略，
+构成从宏观到微观的完整证据链。
+
+% -------------------------------------------------------------------
+\subsection{策略一：梯度组描述性分析}
+\label{subsec:gradient}
+% -------------------------------------------------------------------
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{属性} & \textbf{值} \\
+\midrule
+脚本 & \texttt{descriptive\_gradient.py} \\
+数据 & 预聚合的6组$\times$7年 = 42个单元格 \\
+AI分数 & ISCO级（6个梯度组均分） \\
+分析层级 & 梯度组$\times$年份 \\
+定位 & \textbf{描述性}，不主张因果 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方法}
+
+将304个ISCO职业按ILO梯度分为6组
+（Not Exposed, Minimal, G1, G2, G3, G4），
+按组$\times$年聚合后计算均值主题熵，
+剔除数据断层年份（2019--2020）和2025年后，
+得到42个单元格。
+
+运行三个WLS规格（权重=单元格样本量）：
+
+\begin{itemize}
+\item \textbf{Model A}：$\overline{\text{entropy}}_{gt} = \alpha
+      + \sum_t \delta_t + \beta \cdot \text{ai\_score}_g$
+      \quad （截面关联）
+\item \textbf{Model B}：$+\sum_t \gamma_t \cdot \mathbf{1}[t] \times \text{ai\_score}_g$
+      \quad （差异化趋势检验）
+\item \textbf{Model C}：$\overline{\text{entropy}}_{gt} = \alpha
+      + \sum_t \delta_t + \sum_g \phi_g$
+      \quad （梯度组固定效应，加法模型）
+\end{itemize}
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略一：结果]
+\begin{itemize}
+\item 所有6组主题熵均呈上升趋势，斜率$5.32$--$5.89 \times 10^{-3}$/年；
+\item 组间斜率差异在小数点后第3--4位，经济意义上可忽略；
+\item Model B中所有年份$\times$ai\_score交互项均不显著（$p>0.63$）；
+\item Model C中梯度组系数极小（$|\phi_g| < 0.001$），
+      仅G4在$p=0.023$边际显著。
+\end{itemize}
+\textbf{结论}：趋势普遍上升，组间无分化。
+\end{resultbox}
+
+\subsubsection{局限}
+
+\begin{itemize}
+\item 仅42个观测值，统计功效极低；
+\item 6个梯度组丢弃了连续ai\_score的信息；
+\item 无法控制职业固定效应。
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{策略二：ISCO单元格加权最小二乘（WLS）}
+\label{subsec:isco_wls}
+% -------------------------------------------------------------------
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{属性} & \textbf{值} \\
+\midrule
+脚本 & \texttt{isco\_level\_regression.py} \\
+数据 & 7,359,590条聚合为2,675个ISCO$\times$年单元格 \\
+AI分数 & ISCO级（49个唯一值） \\
+分析层级 & 职业$\times$年份 \\
+定位 & 以连续ai\_score替代离散梯度组 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方法}
+
+将个体记录按ISCO四位码$\times$年份聚合，
+每个单元格取样本均值主题熵、均值log字数和样本量$n$。
+使用WLS回归（权重=$n$，HC3标准误），运行4个规格：
+
+\begin{itemize}
+\item \textbf{Model 1}：$\overline{\text{entropy}}_{ot}
+      = \alpha + \sum_t \delta_t + \beta \cdot \text{ai\_score}_o$
+      \quad （截面关联）
+\item \textbf{Model 2}：$+ \sum_t \gamma_t \cdot \mathbf{1}[t]
+      \times \text{ai\_score}_o$
+      \quad （全交互）
+\item \textbf{Model 3}：$+ \alpha_o$（ISCO固定效应，
+      吸收ai\_score主效应）
+      \quad \textbf{核心规格}
+\item \textbf{Model 4}：线性趋势$\times$ai\_score
+      \quad （简约交互）
+\end{itemize}
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略二：结果]
+\begin{itemize}
+\item Model 1：$\hat{\beta} = +0.0009$，$p = 0.354$，无截面关联；
+\item Model 2：所有交互项$|\hat{\gamma}_t| < 0.006$，最显著$p=0.244$；
+\item \textbf{Model 3}（核心）：
+      \textbf{联合$F$检验$F(9, 2353) = 0.47$，$p = 0.894$}，
+      所有交互项不显著；
+\item Model 4：线性交互$\hat{\gamma} = +0.0002$，$p = 0.744$；
+\item 304个ISCO职业散点图：趋势斜率 vs.\ ai\_score
+      相关$r = 0.055$，$p = 0.341$。
+\end{itemize}
+\textbf{结论}：三项检验（联合$F$、线性交互、散点相关）一致表明
+\textbf{AI暴露不预测差异化趋势}。
+\end{resultbox}
+
+\subsubsection{相对策略一的改进}
+
+\begin{itemize}
+\item 观测量从42增至2,675（增加64倍）；
+\item 利用了49个唯一连续值（vs. 6个离散组）；
+\item 可纳入ISCO职业固定效应控制时不变异质性。
+\end{itemize}
+
+\subsubsection{局限}
+
+\begin{itemize}
+\item ai\_score仅49个唯一值，ISCO FE下已被完全吸收；
+\item 聚合丢失了个体层面信息；
+\item 无法利用同ISCO码内的岗位异质性。
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{策略三：个体层面TWFE回归}
+\label{subsec:twfe}
+% -------------------------------------------------------------------
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{属性} & \textbf{值} \\
+\midrule
+脚本 & \texttt{individual\_twfe.py} \\
+数据 & 全量7,359,590条个体记录 \\
+AI分数 & ISCO级（49个唯一值） \\
+分析层级 & 个体（最大$N$） \\
+定位 & 利用个体数据检验聚合偏差 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方法}
+
+直接在个体层面运行双向固定效应回归，
+通过Frisch-Waugh-Lovell（FWL）定理吸收ISCO固定效应
+（对所有变量按ISCO组去均值），
+标准误聚类在ISCO四位码层面（304个聚类）。
+
+三个子规格：
+
+\paragraph{Model A：连续交互}
+\[
+\text{entropy}_i = \alpha_o + \sum_t \delta_t
++ \sum_t \gamma_t \cdot \mathbf{1}[\text{year}_i = t]
+\times \text{ai\_score}_o + \varepsilon_i
+\]
+参照年2016，ISCO聚类标准误。
+
+\paragraph{Model B：二元DID}
+\[
+\text{entropy}_i = \alpha_o + \sum_t \delta_t
++ \beta \cdot \text{Treated}_i \times \text{Post}_i + \varepsilon_i
+\]
+处置组=G3+G4，对照组=Minimal+Not Exposed，Post$\geq$2023。
+子样本$N=4{,}966{,}845$。
+
+\paragraph{Model C：事件研究}
+\[
+\text{entropy}_i = \alpha_o + \sum_t \delta_t
++ \sum_t \beta_t \cdot \mathbf{1}[\text{year}_i = t]
+\times \text{Treated}_i + \varepsilon_i
+\]
+参照年2022（Post前最后一年），直接检验平行趋势假设。
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略三：结果]
+\begin{itemize}
+\item \textbf{Model A}：联合$F$检验$F(9, 303) = 0.518$，$p = 0.861$。
+      Post-2023交互项：$|\hat{\gamma}| < 0.005$，$p > 0.29$；
+\item \textbf{Model B}：$\hat{\beta}_\text{DID} = +0.0007$，
+      $\text{SE} = 0.0004$，$p = 0.113$，
+      95\% CI $[-0.0002, +0.0015]$。
+      效应为正但不显著；
+\item \textbf{Model C}：处置前系数均$\approx 0$（$|p| > 0.83$），
+      \textbf{平行趋势假设完美成立}。
+      处置后系数为正但不显著（2024年$p=0.123$，最接近显著）。
+\end{itemize}
+\textbf{结论}：个体层面与聚合层面结论完全一致，
+排除了Simpson悖论/聚合偏差。
+\end{resultbox}
+
+\subsubsection{相对策略二的改进}
+
+\begin{itemize}
+\item 样本量从2,675跃升至7,359,590（增加2,750倍）；
+\item 直接控制个体异质性，无需聚合；
+\item 事件研究图提供了平行趋势的直观检验。
+\end{itemize}
+
+\subsubsection{局限}
+
+\begin{itemize}
+\item ai\_score仍为ISCO级49个唯一值——
+      在ISCO FE下被完全吸收，仅靠时序交互识别；
+\item 大$N$带来的功效提升有限（聚类在304个ISCO码上，
+      有效自由度受限于聚类数而非观测数）；
+\item 标准误反映的是ISCO码间变异，而非个体间变异。
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{策略四：JD级个体OLS回归}
+\label{subsec:jd_ols}
+% -------------------------------------------------------------------
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{属性} & \textbf{值} \\
+\midrule
+脚本 & \texttt{jd\_level\_regression.py} \\
+数据 & 全量7,359,590条个体记录 \\
+AI分数 & \textbf{JD级}（365,472个唯一值） \\
+分析层级 & 个体（最大$N$ + 最大变异） \\
+定位 & 最终决定性检验 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方法}
+
+使用JD级\texttt{jd\_ai\_score}（方法二赋值）替代ISCO级ai\_score，
+在个体层面运行OLS。关键创新：
+ISCO FE吸收主效应后，
+\textbf{同一ISCO码内不同岗位的ai\_score差异}仍保留
+（ISCO内33.7\%的变异不被FE吸收），
+提供了真正的"ISCO内"识别。
+
+三个规格递进：
+
+\begin{itemize}
+\item \textbf{Model 1}：年份FE + \texttt{jd\_ai\_score}
+      + 年份$\times$\texttt{jd\_ai\_score}，HC1标准误；
+\item \textbf{Model 2}：同上，ISCO四位码聚类标准误；
+\item \textbf{Model 3}：$+$ISCO固定效应（FWL去均值），
+      ISCO聚类标准误。\textbf{核心规格}。
+\end{itemize}
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略四：结果]
+\textbf{Post-2023交互项}（核心关注期）：
+
+\begin{center}
+\small
+\begin{tabular}{l rrr}
+\toprule
+年份 & Model 1 (HC1) & Model 2 (聚类) & Model 3 (ISCO FE) \\
+\midrule
+2023 & $p=0.875$ & $p=0.880$ & $p=0.828$ \\
+2024 & $p=0.096$ & $p=0.152$ & $p=0.201$ \\
+2025 & $p=0.319$ & $p=0.321$ & $p=0.341$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+联合$F$检验在ISCO聚类下$p\approx 0.025$，
+但显著性\textbf{完全由2019年异常系数驱动}
+（$\hat{\gamma}_{2019}\approx +0.103$，$p=0.002$），
+反映的是数据断层期的样本选择效应。
+
+\textbf{结论}：即便将AI暴露变异从49个值扩展至365,472个值，
+Post-2023交互项仍全部不显著（$p>0.15$），
+\textbf{彻底排除了"统计功效不足"的替代解释}。
+\end{resultbox}
+
+\subsubsection{相对策略三的改进}
+
+\begin{itemize}
+\item ai\_score唯一值从49$\to$365,472（增加$\sim$7,500倍）；
+\item ISCO FE不再完全吸收ai\_score——
+      保留33.7\%的ISCO内变异用于识别；
+\item 同时拥有最大$N$和最大变异。
+\end{itemize}
+
+\subsubsection{局限}
+
+\begin{itemize}
+\item JD级分数构建依赖SBERT语义匹配质量；
+\item top-5加权平均是构造性指标，非外部赋予；
+\item 无法与ISCO级分数完全解耦（两者$r=0.727$）。
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{策略五：XGBoost非线性预测检验}
+\label{subsec:xgboost}
+% -------------------------------------------------------------------
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{属性} & \textbf{值} \\
+\midrule
+脚本 & \texttt{xgboost\_ai\_exposure.py} \\
+数据 & 500,000条采样（从7.4M中） \\
+AI分数 & JD级 + ISCO级（同时使用） \\
+分析层级 & 个体 \\
+定位 & 非线性/交互效应的模型无关检验 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方法}
+
+前四种策略均基于线性回归框架。
+如果AI暴露与entropy之间存在\textbf{非线性关系}或
+\textbf{高阶交互效应}（如AI暴露仅在特定行业、特定文档长度下有效），
+线性模型可能遗漏。
+XGBoost（梯度提升决策树）能自动捕捉任意非线性和交互，
+作为线性回归之外的独立证据链。
+
+特征集（排除\texttt{dominant\_topic\_prob}，
+因其与entropy\_score机械相关）：
+
+\begin{itemize}
+\item \texttt{log\_token\_count}（岗位描述长度）
+\item \texttt{year}（时间趋势）
+\item \texttt{jd\_ai\_score}（JD级AI暴露）
+\item \texttt{ai\_mean\_score}（ISCO级AI暴露）
+\item \texttt{isco\_cat}（职业码）
+\item \texttt{industry\_cat}（行业码）
+\end{itemize}
+
+通过\textbf{消融实验}（Ablation）比较去掉AI特征前后的预测性能变化。
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略五：结果]
+\textbf{消融实验}：
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+模型 & $R^2_\text{test}$ & RMSE & $\Delta R^2$ vs Full \\
+\midrule
+Full（所有特征） & 0.0606 & 0.2007 & -- \\
+去掉AI特征 & 0.0605 & 0.2007 & $-0.0001$ \\
+去掉ISCO码 & 0.0605 & 0.2007 & $-0.0001$ \\
+仅AI + year & 0.0045 & 0.2066 & $-0.0561$ \\
+仅year（基线） & 0.0060 & 0.2064 & $-0.0546$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Feature Importance}：
+\texttt{log\_token\_count}（70.3\%）$\gg$
+\texttt{year}（11.5\%）$\gg$
+\texttt{jd\_ai\_score}（4.9\%）$\approx$
+\texttt{isco\_cat}（4.6\%）$\approx$
+\texttt{ai\_mean\_score}（4.4\%）$\approx$
+\texttt{industry\_cat}（4.3\%）。
+
+\textbf{Partial Dependence}：
+\texttt{year}$\to$entropy呈清晰单调上升（range=0.10）；
+\texttt{jd\_ai\_score}$\to$entropy呈无方向噪声（range=0.014，仅为year的1/7）。
+
+\textbf{分期分析}：
+Pre-2023和Post-2023两个时期，
+加入AI特征后$R^2$均\textbf{不升反降}
+（Pre: $-0.0002$, Post: $-0.0016$），
+AI特征甚至是负贡献（过拟合噪声）。
+
+\textbf{结论}：AI暴露对entropy的预测贡献为$\Delta R^2 = +0.0001$
+（总$R^2$的0.2\%），实质为零。
+XGBoost能捕捉任意非线性和交互效应，
+但仍无法从AI暴露中提取有效信号——
+\textbf{排除了"线性模型遗漏非线性效应"的替代解释}。
+\end{resultbox}
+
+
+% ===================================================================
+\subsection{策略六：自动化/增强分解检验}
+\label{subsec:auto_aug}
+% ===================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{灵感来源} & Hampole, Rao \& Tan (NBER WP, 2025) \\
+\textbf{核心假说} & 聚合AI暴露掩盖了自动化（替代）与增强（互补）的反向效应 \\
+\textbf{数据} & \texttt{master\_with\_ai\_exposure\_v2.csv} (7.3M) \\
+\textbf{输出} & \texttt{output/auto\_aug/}
+\end{tabular}
+\end{center}
+
+\subsubsection{方法}
+
+Hampole et al.\ (2025) 发现聚合AI暴露无显著效应，分解为automation/augmentation后效应显著且方向相反。
+由于ILO WP140数据仅提供聚合的\texttt{mean\_score}，我们构建自动化/增强子分数：
+
+\begin{enumerate}
+\item 使用SBERT (BAAI/bge-large-zh-v1.5) 编码303个ISCO职业的中文名称
+\item 定义自动化概念集（``数据录入和文书处理等重复性认知工作''等7句）
+      和增强概念集（``专业分析、创新设计和战略决策''等7句）
+\item 计算每个ISCO职业与两组概念的余弦相似度：$\text{sim}_{\text{auto}}, \text{sim}_{\text{aug}}$
+\item 分解：$\text{auto\_score} = \frac{\text{sim}_{\text{auto}}}{\text{sim}_{\text{auto}}+\text{sim}_{\text{aug}}} \times \text{mean\_score}$，
+      增强分数类推，确保 $\text{auto\_score} + \text{aug\_score} = \text{mean\_score}$
+\end{enumerate}
+
+三个模型：
+\begin{itemize}
+\item Model 1: ISCO级WLS: $\overline{\text{entropy}} \sim C(\text{year}) \times \text{auto\_score} + C(\text{year}) \times \text{aug\_score}$
+\item Model 2: 个体TWFE: $\text{entropy} \sim \text{ISCO\_FE} + \text{year\_FE} + \text{year} \times \text{auto} + \text{year} \times \text{aug}$
+\item Model 3 (稳健性): 基于ISCO大类的二元DID (auto=ISCO 4/6/7/8/9, aug=ISCO 1/2)
+\end{itemize}
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略六结果]
+\textbf{SBERT分解统计}：
+自动化分数均值=0.185，增强分数均值=0.183，\textbf{二者相关系数=0.93}。
+分解区分度有限（share\_auto范围仅[0.44, 0.60]）。
+
+\textbf{Model 1 (ISCO级WLS)}：
+\begin{itemize}
+\item 自动化 $\times$ 年份: 联合$F$ $p=0.256$
+\item 增强 $\times$ 年份: 联合$F$ $p=0.066$ (边际显著)
+\item 但边际显著性由2020年COVID异常值驱动 (aug $\times$ 2020: $-0.476$, $p=0.047$)
+\end{itemize}
+
+\textbf{Model 2 (个体TWFE, ISCO聚类SE)}：
+\begin{itemize}
+\item 自动化联合$F$: $p<0.001$; 增强联合$F$: $p<0.001$
+\item 但\textbf{所有post-2023个体交互项均不显著}（$p>0.27$）
+\item 联合显著性由2019/2020异常值+7.3M样本量驱动
+\end{itemize}
+
+\textbf{Model 3 (二元DID)}：
+\begin{itemize}
+\item DID auto: $-0.0005$, $p=0.280$
+\item DID aug: $+0.0002$, $p=0.565$
+\item 方向符合理论（自动化 $\downarrow$, 增强 $\uparrow$），但均不显著
+\end{itemize}
+
+\textbf{结论}：SBERT概念分解未能改善结果。
+\textbf{主要限制}：auto/aug分数高度共线（$r=0.93$），分解区分度不足。
+\end{resultbox}
+
+\subsubsection{改进：Gemini LLM评分（效仿Hampole et al.的GPT-4方法）}
+
+SBERT概念相似度方法的根本问题在于：
+所有ISCO职业名称与``自动化''和``增强''概念的相似度高度同步变化。
+Hampole et al.\ (2025) 使用GPT-4逐职业评分，获得了有效的分解。
+我们使用Google Gemini 2.0 Flash复现此方法。
+
+\paragraph{Prompt设计}
+
+为303个ISCO职业（中英文名称），
+向Gemini提交以下结构化prompt（每批10个职业）：
+
+\begin{quote}
+\small
+``请评估以下职业中的工作任务被生成式AI影响的方式：\\
+(1) \textbf{automation\_share}：可被AI直接替代或自动完成的核心任务比例
+（重复性、规则明确、标准化的认知任务）；\\
+(2) \textbf{augmentation\_share}：因AI而被增强的核心任务比例
+（需要判断力、创造力、人际交往、复杂分析的任务）。\\
+要求：两者之和=1.0，仅基于职业典型工作内容判断。''
+\end{quote}
+
+\paragraph{分解质量}
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+指标 & SBERT (旧) & Gemini (新) \\
+\midrule
+$r(\text{auto\_score}, \text{aug\_score})$ & \textbf{+0.93} & \textbf{$-$0.059} \\
+share\_auto 范围 & $[0.44, 0.60]$ & $[0.00, 0.85]$ \\
+share\_auto 标准差 & 0.024 & 0.186 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Gemini评分的auto/aug维度接近正交（$r=-0.059$），
+且变异范围大幅增加（标准差从0.024$\to$0.186），
+实现了Hampole et al.方法的核心要求。
+
+Top-3自动化主导：数据录入员（0.80）、打字员（0.80）、会计文员（0.70）。
+Top-3增强主导：运动员（1.00）、专科医师（0.95）、特殊教育教师（0.95）。
+
+\paragraph{回归结果}
+
+\begin{resultbox}[策略六Gemini改进版结果]
+
+\textbf{Model 2 (个体TWFE, ISCO聚类SE, $N=7{,}346{,}052$)}：
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+检验 & 自动化$\times$年份 & 增强$\times$年份 \\
+\midrule
+全年份联合$F$ $p$ & 0.916 & \textbf{0.034**} \\
+\textbf{Post-2023联合$F$ $p$} & 0.938 & \textbf{0.023**} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Post-2023增强$\times$年份交互项：
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+年份 & Coef & SE & $p$ \\
+\midrule
+2023 $\times$ aug & $-$0.005 & 0.005 & 0.345 \\
+2024 $\times$ aug & $+$0.005 & 0.005 & 0.270 \\
+2025 $\times$ aug & $+$0.003 & 0.024 & 0.899 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+自动化交互项在所有规格下均不显著（$p>0.28$），
+与``自动化效应不反映在entropy上''一致。
+
+\textbf{结论}：Gemini LLM评分实现了有效的auto/aug正交分解（$r=-0.06$ vs SBERT的$r=0.93$），
+\textbf{增强性暴露$\times$Post-2023年份交互项联合显著（$p=0.023$）}，
+表明高增强性暴露的ISCO职业在ChatGPT发布后呈现显著不同的entropy趋势。
+自动化暴露效应始终不显著，与理论预测一致
+（自动化替代的效应不应体现在entropy的变动上）。
+\end{resultbox}
+
+
+% ===================================================================
+\subsection{策略七：结果变量分解检验}
+\label{subsec:topic_decomp}
+% ===================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{灵感来源} & Atalay, Sotelo \& Tannenbaum (JLE, 2024) \\
+\textbf{核心假说} & Entropy太聚合，掩盖了分解后的异质性 \\
+\textbf{数据} & \texttt{master\_with\_ai\_exposure\_v2.csv} (7.4M) \\
+\textbf{输出} & \texttt{output/topic\_decomposition/}
+\end{tabular}
+\end{center}
+
+\subsubsection{方法}
+
+受Atalay et al.\ (2024) ``动词-名词对''任务分解方法启发，
+将LDA主题按Spitz-Oener (2006) 五类任务框架分类：
+
+\begin{itemize}
+\item \textbf{NRA} (非例行分析型): 14个主题 — 技术开发、数据分析、编程、设计、产品研发
+\item \textbf{NRI} (非例行互动型): 17个主题 — 沟通协调、市场营销、教育培训、销售管理
+\item \textbf{RC} (例行认知型): 9个主题 — 财务核算、行政文档、采购流程、办公软件
+\item \textbf{RM} (例行手动型): 5个主题 — 生产制造、机械维修、工程施工、驾驶运输
+\item \textbf{M} (通用/噪声): 15个主题 — 软技能、学历要求、福利待遇（分析时排除）
+\end{itemize}
+
+基于每条记录的dominant\_topic\_id分配至类别，计算ISCO$\times$年份单元格内各类别份额，
+运行WLS回归：$\text{share}_k \sim C(\text{year}) \times \text{ai\_score}$。
+
+Part B: 对全部50个主题逐一回归，Benjamini-Hochberg FDR校正（$q=0.10$）。
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略七结果]
+\textbf{Part A: Spitz-Oener类别份额回归}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+类别 & 联合$F$ & $p$值 & 显著性 \\
+\midrule
+NRA (非例行分析) & 1.665 & 0.092 & * \\
+NRI (非例行互动) & 0.946 & 0.484 & \\
+RC (例行认知) & 1.281 & 0.242 & \\
+RM (例行手动) & 1.221 & 0.277 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+NRA类别边际显著（$p=0.092$），个体LPM确认（Joint $F$ $p=0.038$）。
+但post-2023交互项方向为\textbf{负}（2023: $-0.009$, $p=0.091$），
+即高AI暴露职业的非例行分析份额\textbf{略有下降}（与增强假说方向相反）。
+
+\textbf{Part B: 50个主题逐一回归}
+\begin{itemize}
+\item Raw $p<0.05$: 4个主题 (Topic 2写作编辑, Topic 3通用软技能, Topic 45数据分析, Topic 27基本技能)
+\item BH FDR校正后 ($q=0.10$): \textbf{0个主题通过}
+\end{itemize}
+
+\textbf{结论}：分解结果变量后，NRA（非例行分析型技能）显示微弱信号，
+但方向与增强假说不一致，且FDR校正后无任何主题的AI暴露效应显著。
+Entropy的null result\textbf{不是因为聚合掩盖了分解后的异质性}——
+各个组分同样没有显著的差异化趋势。
+\end{resultbox}
+
+
+% ===================================================================
+\subsection{策略八：直接AI采纳度量 + 文档长度控制}
+\label{subsec:ai_adoption_old}
+\label{subsec:ai_adoption}
+% ===================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{核心动机} & ILO理论暴露评分$\neq$实际AI采纳；entropy受token\_count主导 \\
+\textbf{方法创新} & 从招聘文本中直接扫描AI关键词构建``revealed adoption''指标 \\
+\textbf{数据} & \texttt{master\_with\_ai\_exposure\_v2.csv} (7.8M) \\
+\textbf{输出} & \texttt{output/ai\_adoption/}
+\end{tabular}
+\end{center}
+
+\subsubsection{动机}
+
+前七种策略均使用ILO WP140的理论AI暴露评分。
+策略五（XGBoost）发现\texttt{log\_token\_count}解释了entropy总方差的\textbf{70.3\%}，
+远超AI暴露的贡献（4.9\%）。这提出两个问题：
+
+\begin{enumerate}
+\item ILO的理论暴露评分是否准确反映了中国劳动力市场中AI的\textbf{实际采纳}？
+\item 不控制文档长度（token count）是否导致遗漏变量偏误？
+\end{enumerate}
+
+\subsubsection{方法}
+
+\paragraph{Step 1: 构建AI采纳率指标}
+
+使用正则表达式从每条招聘广告的岗位名称（\texttt{招聘岗位}字段）中
+扫描以下AI关键词（中英文）：
+
+\begin{quote}
+\small
+人工智能, AI, 机器学习, 深度学习, 大模型, LLM, ChatGPT, AIGC, GPT, NLP,
+自然语言处理, 计算机视觉, 算法工程, 数据挖掘, 智能, 大数据
+\end{quote}
+
+按ISCO$\times$年份单元格聚合，计算\texttt{ai\_adoption\_rate} = AI提及数 / 单元格总量。
+
+\paragraph{Step 2: 验证ILO理论暴露 vs 实际采纳}
+
+比较ILO \texttt{ai\_mean\_score}与上述直接度量的\texttt{ai\_adoption\_rate}
+在ISCO$\times$年份单元格层面的相关性。
+
+\paragraph{Step 3: 四组回归}
+
+在ISCO$\times$年份WLS框架下（HC3标准误，权重=单元格样本量）：
+
+\begin{itemize}
+\item \textbf{Model A}: 基线 — $\overline{\text{entropy}} \sim C(\text{year}) \times \text{ilo\_score}$（复现策略二）
+\item \textbf{Model B}: $+$ \texttt{mean\_log\_tc}（单元格均值log token count作为控制变量）
+\item \textbf{Model C}: 用\texttt{ai\_adoption\_rate}替代ILO评分
+\item \textbf{Model D}: \texttt{ai\_adoption\_rate} $+$ \texttt{mean\_log\_tc}
+\end{itemize}
+
+\paragraph{Step 4: 类别份额回归}
+
+对Spitz-Oener四类任务份额（策略七的类别分配），
+分别使用ILO评分+log\_tc和AI采纳率+log\_tc重新运行WLS。
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略八结果]
+
+\textbf{1. 描述性统计：AI采纳率}
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+年份 & AI标题提及数 & 占比 \\
+\midrule
+2016 & 689 & 0.148\% \\
+2017 & 1,300 & 0.155\% \\
+2018 & 683 & 0.170\% \\
+2021 & 2,983 & 0.254\% \\
+2022 & 4,478 & 0.204\% \\
+2023 & 2,292 & 0.196\% \\
+2024 & 5,183 & \textbf{0.480\%} \\
+\midrule
+全部 & 17,704 / 7,794,684 & 0.23\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+2024年AI采纳率为2016年的\textbf{3.2倍}（0.48\% vs 0.15\%），呈现明确的时间趋势。
+
+\medskip
+\textbf{2. 关键验证：ILO理论评分 vs 实际采纳}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+ILO梯度 & 理论排序 & 实际AI采纳率 \\
+\midrule
+Gradient 4 (最高暴露) & 1st & 0.091\% \\
+\textbf{Gradient 3 (中高暴露)} & 2nd & \textbf{0.978\%} \\
+Gradient 2 & 3rd & 0.047\% \\
+Gradient 1 & 4th & 0.030\% \\
+Minimal & 5th & 0.022\% \\
+Not Exposed & 6th & 0.037\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{加权相关系数}：$r(\text{ILO score}, \text{adoption rate}) = 0.10$。
+
+Gradient 3（含程序员、翻译等）实际AI采纳率最高（0.978\%），
+而理论上AI暴露最高的Gradient 4（数据录入员等）仅0.091\%——
+\textbf{ILO理论排序与中国市场实际采纳严重脱节}。
+
+\medskip
+\textbf{3. Entropy回归}
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+模型 & 联合$F$ $p$值 & $R^2$ \\
+\midrule
+A: ILO基线 & 0.918 & 0.938 \\
+B: ILO + log\_tc & 0.942 & 0.941 \\
+C: 采纳率 & 0.982 & 0.938 \\
+D: 采纳率 + log\_tc & 0.834 & 0.941 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Entropy层面仍无显著效应}（所有$p > 0.83$），无论使用何种AI度量或是否控制token count。
+但\texttt{log\_token\_count}本身高度显著（$p < 0.0001$），
+$R^2$从0.938提升至0.941，确认文档长度是entropy的核心预测因子。
+
+\medskip
+\textbf{4. 类别份额回归（关键发现）}
+
+\begin{center}
+\small
+\begin{tabular}{lcc}
+\toprule
+类别 & ILO + log\_tc $p$ & 采纳率 + log\_tc $p$ \\
+\midrule
+NRA (非例行分析) & 0.098* & 0.352 \\
+NRI (非例行互动) & 0.553 & 0.907 \\
+RC (例行认知) & 0.244 & 1.000 \\
+\textbf{RM (例行手动)} & 0.332 & \textbf{0.044**} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{RM（例行手动型）类别}：使用直接AI采纳率度量 + log\_tc控制后，
+联合$F$检验$p = 0.044$，在5\%水平\textbf{显著}。
+Post-2023交互项方向为\textbf{负}：
+高AI采纳职业的例行手动任务份额在post-2023时期下降。
+这与``AI替代例行任务''的理论预测\textbf{方向一致}。
+
+NRA（非例行分析型）使用ILO评分+log\_tc时维持边际显著（$p=0.098$），
+但使用采纳率度量后不再显著（$p=0.352$），
+提示NRA信号可能源于ILO评分的系统性偏差而非真实效应。
+
+\end{resultbox}
+
+\subsubsection{方法论启示}
+
+\begin{enumerate}
+\item \textbf{ILO理论评分的局限}：$r=0.10$的低相关证实，
+      基于GPT对ISCO任务描述的理论评估无法准确反映中国劳动力市场的AI实际采纳格局。
+      Gradient 4（数据录入等）在理论上AI暴露最高，但实际采纳远低于Gradient 3（程序员等）。
+\item \textbf{token count的重要性}：XGBoost发现token count解释70\%的entropy方差，
+      策略八确认加入log\_tc后$R^2$提升0.3个百分点。
+      不控制文档长度可能导致对AI效应的错误估计。
+\item \textbf{RM类别的信号}：唯一在5\%水平显著的发现出现在``例行手动型''任务份额中，
+      且仅在使用直接采纳率度量（非ILO理论评分）和控制token count后出现。
+      方向符合理论预测（AI替代例行任务），但该信号需谨慎解读——
+      仅在特定度量$\times$特定控制变量$\times$特定结果分解的组合下出现。
+\end{enumerate}
+
+
+% ===================================================================
+\subsection{策略九：Atalay式任务关键词提取 + 替代/增强暴露分解}
+\label{subsec:task_measures}
+% ===================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{灵感来源} & Atalay, Sotelo \& Tannenbaum (JLE, 2024) \\
+\textbf{核心创新} & (1) 用任务关键词强度替代entropy; (2) 基于任务内容分解AI暴露 \\
+\textbf{数据} & window CSVs (8.6M) $\to$ \texttt{cleaned\_requirements}全文 \\
+\textbf{输出} & \texttt{output/task\_measures/}
+\end{tabular}
+\end{center}
+
+\subsubsection{动机}
+
+前八种策略的被解释变量始终是LDA topic entropy——
+一个聚合指标，且70\%方差被token\_count主导。
+Atalay et al.\ (2024) 使用动词-名词对（verb-noun pairs）
+直接从招聘广告中提取任务内容，构建可解释的任务强度指标。
+
+本策略做出两个根本性改变：
+\begin{enumerate}
+\item \textbf{被解释变量}：用Spitz-Oener四类任务的关键词计数替代entropy
+\item \textbf{解释变量}：基于职业的实际任务内容将AI暴露分解为替代性（substitution）
+      和增强性（augmentation）两个正交维度
+\end{enumerate}
+
+\subsubsection{方法}
+
+\paragraph{Step 1: 任务关键词提取}
+
+为Spitz-Oener四类任务定义中文动词-名词关键词列表：
+
+\begin{itemize}
+\item \textbf{RC}（例行认知）：数据录入、报表制作、档案管理、核对、归档、台账、发票……（32个关键词）
+\item \textbf{NRA}（非例行分析）：数据分析、系统开发、算法开发、架构设计、编程、创新……（30个关键词）
+\item \textbf{NRI}（非例行互动）：客户沟通、团队管理、商务谈判、培训指导、跨部门协调……（28个关键词）
+\item \textbf{RM}（例行体力）：设备操作、焊接加工、货物搬运、质量检测、产线操作……（30个关键词）
+\end{itemize}
+
+使用正则匹配扫描8.6M条招聘广告的\texttt{cleaned\_requirements}全文，
+通过job title$\to$ISCO查找表（2,495,201个唯一标题）链接到ISCO码，
+匹配率91.7\%。
+
+\paragraph{Step 2: 任务强度度量}
+
+对每条招聘广告，计数每类关键词出现次数。
+聚合至2,680个ISCO$\times$年份单元格：
+
+\begin{center}
+\small
+\begin{tabular}{lrr}
+\toprule
+类别 & 总命中数 & 含$\geq$1关键词的记录占比 \\
+\midrule
+RC & 581,492 & 4.2\% \\
+NRA & 1,901,847 & 15.2\% \\
+NRI & 2,916,607 & 22.8\% \\
+RM & 539,326 & 4.3\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Step 3: 替代/增强暴露分解}
+
+基于每个ISCO职业的\textbf{baseline任务画像}
+（2016--2022年加权平均关键词计数，排除2019--2020）：
+
+\[
+\text{subst\_exposure}_o = \text{ai\_score}_o \times \text{RC\_share}_o^{\text{baseline}}
+\]
+\[
+\text{aug\_exposure}_o = \text{ai\_score}_o \times \text{NRA\_share}_o^{\text{baseline}}
+\]
+
+其中$\text{RC\_share}$和$\text{NRA\_share}$是该职业baseline期任务关键词中
+RC和NRA各自占总关键词的份额。
+
+\textbf{关键改进}：两种暴露维度的相关系数仅$r = -0.096$
+（vs 策略六SBERT分解的$r=0.93$），
+实现了接近正交的替代/增强分解。
+
+\subsubsection{结果}
+
+\begin{resultbox}[策略九结果：任务强度回归]
+
+\textbf{Part A: 聚合AI暴露 × 任务强度}
+
+WLS: $\text{mean\_kw\_count}_k \sim C(\text{year}) \times \text{ai\_score} + \text{log\_textlen}$
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+DV & 联合$F$ $p$值 & Post-2024交互 & ai\_score主效应 \\
+\midrule
+RC & 0.623 & $p=0.876$ & $+0.307$, $p=0.197$ \\
+NRA & 0.510 & $p=0.473$ & $-0.263$, $p=0.048$** \\
+NRI & 0.946 & $p=0.345$ & $-0.241$, $p=0.353$ \\
+\textbf{RM} & \textbf{0.000}*** & $p=0.085$* & $-0.373$, $p<0.001$*** \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+RM（例行体力）的AI暴露$\times$年份交互在所有年份联合检验中高度显著（$p<0.0001$），
+post-2024交互边际显著（$p=0.085$），方向为\textbf{负}（高AI暴露$\to$RM减少）。
+NRA的ai\_score主效应显著为负（$p=0.048$），表明高AI暴露职业的分析型任务密度\textbf{截面上较低}。
+\end{resultbox}
+
+\begin{resultbox}[策略九结果：替代/增强暴露分解（核心发现）]
+
+\textbf{Part B: 分解暴露 × 任务强度}
+
+WLS: $\text{kw\_count}_k \sim C(\text{year}) \times \text{subst} + C(\text{year}) \times \text{aug} + \text{log\_textlen}$
+
+\begin{center}
+\small
+\begin{tabular}{lcccc}
+\toprule
+DV & Subst$\times$year $p$ & Aug$\times$year $p$ & 关键post-2023系数 \\
+\midrule
+RC & \textbf{0.000}*** & 0.803 & -- \\
+\textbf{NRA} & 0.999 & \textbf{0.000}*** & AUG$\times$2024: $+1.31$, $p=0.013$** \\
+\textbf{NRI} & 0.483 & \textbf{0.007}*** & AUG$\times$2023: $-0.59$, $p=0.051$* \\
+ & & & AUG$\times$2024: $-0.51$, $p=0.050$* \\
+RM & 0.998 & 0.685 & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{核心发现}：
+
+\begin{enumerate}
+\item \textbf{NRA × 增强暴露}：高增强暴露职业在2024年的非例行分析型任务关键词
+      显著增加（$+1.31$，$p=0.013$）。
+      \textbf{方向完全符合AI增强假说}——
+      AI增强型职业正在增加分析、设计、研发等高阶认知任务。
+
+\item \textbf{NRI × 增强暴露}：高增强暴露职业在2023--2024年的
+      非例行互动型任务关键词显著减少
+      （2023: $-0.59$, $p=0.051$; 2024: $-0.51$, $p=0.050$）。
+      可能反映AI聊天机器人/智能客服正在替代部分人际互动任务。
+
+\item \textbf{RC × 替代暴露}：联合$F$高度显著（$p<0.0001$），
+      但post-2023个体系数不显著，
+      信号主要来自pre-period的趋势差异。
+
+\item \textbf{替代/增强分解的正交性}：$r(\text{subst}, \text{aug}) = -0.096$
+      确保了两种暴露维度的独立识别——
+      这是策略六（SBERT概念分解，$r=0.93$）未能实现的关键突破。
+\end{enumerate}
+
+\end{resultbox}
+
+\subsubsection{与前八种策略的关键差异}
+
+\begin{enumerate}
+\item \textbf{被解释变量}：从不可解释的entropy转向可解释的任务关键词计数——
+      ``2024年数据分析关键词增加1.3个/posting''比``entropy上升0.002''
+      有直观的经济含义。
+\item \textbf{暴露分解}：基于实际任务内容（而非SBERT概念相似度）的数据驱动分解，
+      产生近正交的替代/增强维度。
+\item \textbf{数据利用}：直接使用\texttt{cleaned\_requirements}全文
+      （策略1--8均仅使用LDA后验分布），
+      提取的任务信息更直接、更可解释。
+\item \textbf{结果可解释性}：发现的效应方向与理论预测完全一致——
+      增强暴露$\uparrow$NRA（增加分析任务），增强暴露$\downarrow$NRI（AI替代部分互动）。
+\end{enumerate}
+
+
+% ===================================================================
+\section{九种策略的汇总对比}
+\label{sec:comparison9}
+\label{sec:comparison}
+% ===================================================================
+
+\begin{table}[h!]
+\centering
+\caption{九种回归策略汇总}
+\label{tab:all_methods}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{1.5cm}p{2cm}rrp{3cm}p{3.5cm}}
+\toprule
+策略 & AI分数 & 观测数 & 唯一值 & 核心检验 & 结果 \\
+\midrule
+1. 梯度组 &
+ISCO级\newline （6组均分） &
+42 & 6 &
+组间斜率差异 &
+斜率$5.32$--$5.89$，差异$<1\%$ \\[8pt]
+
+2. ISCO\newline 单元格 &
+ISCO级\newline （49唯一值） &
+2,675 & 49 &
+联合$F$检验\newline 线性交互\newline 散点相关 &
+$F$: $p=0.894$\newline 线性: $p=0.744$\newline $r=0.055$, $p=0.341$ \\[8pt]
+
+3. 个体\newline TWFE &
+ISCO级\newline （49唯一值） &
+7,359,590 & 49 &
+联合$F$检验\newline 二元DID\newline 事件研究 &
+$F$: $p=0.861$\newline DID: $p=0.113$\newline 平行趋势$\checkmark$ \\[8pt]
+
+4. JD级\newline OLS &
+\textbf{JD级}\newline （365K值） &
+7,359,590 & 365,472 &
+Post-2023\newline 交互项 &
+2023: $p=0.83$\newline 2024: $p=0.20$\newline 2025: $p=0.34$ \\[8pt]
+
+5. XGBoost &
+\textbf{JD级}\newline + ISCO级 &
+500,000 & 365,472 &
+消融实验\newline Feature Imp.\newline Partial Dep. &
+$\Delta R^2 = 0.0001$\newline AI imp.=4.9\%\newline PDP: 噪声 \\[8pt]
+
+6. 自动化/\newline 增强分解 &
+SBERT$\to$\newline \textbf{Gemini}\newline （auto+aug） &
+2,667--\newline 7,346,052 & 303 &
+auto$\times$year\newline aug$\times$year\newline 二元DID &
+SBERT: $r=0.93$, 不显著\newline \textbf{Gemini: $r=-0.06$}\newline \textbf{aug$\times$post23: $p=0.023$**} \\[8pt]
+
+7. 结果变量\newline 分解 &
+ISCO级\newline （49唯一值） &
+2,675 & 49 &
+4类份额WLS\newline 50主题FDR &
+NRA: $p=0.092$*\newline FDR后: 0/50显著 \\[8pt]
+
+8. 直接AI\newline 采纳度量 &
+\textbf{关键词}\newline \textbf{采纳率}\newline + log\_tc &
+2,675 & -- &
+4类份额WLS\newline + token控制 &
+\textbf{RM: $p=0.044$**}\newline NRA: $p=0.098$*\newline Entropy: $p>0.83$ \\[8pt]
+
+\textbf{9. 任务关键词}\newline \textbf{+ 暴露分解} &
+\textbf{任务内容}\newline \textbf{分解}\newline subst/aug &
+2,680 & -- &
+4类任务WLS\newline subst$\times$year\newline aug$\times$year &
+\textbf{NRA$\times$aug:}\newline \textbf{$p<0.001$***}\newline NRI$\times$aug: $p=0.007$** \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ===================================================================
+\section{总结}
+\label{sec:conclusion}
+% ===================================================================
+
+\begin{resultbox}[最终结论]
+经过\textbf{九种分析策略}的穷尽性检验，结论呈现清晰的层级结构：
+
+\textbf{第一层（策略1--5）：聚合entropy层面，AI暴露无效应}
+
+\begin{enumerate}
+\item 技能综合性（entropy）在所有AI暴露水平下均呈上升趋势
+      （2016--2024年，斜率$\approx 5$--$6 \times 10^{-3}$/年）；
+\item 无论使用6个梯度组、49个ISCO值还是365K个JD值，
+      无论聚合至42个单元格还是使用全量7.4M个体记录，
+      AI暴露$\times$年份交互项始终不显著（$p>0.15$）。
+\item XGBoost确认AI暴露的预测贡献仅$\Delta R^2 = 0.0001$，
+      70\%方差被token\_count主导。
+\end{enumerate}
+
+\textbf{第二层（策略6--8）：分解尝试，信号逐步浮现}
+
+\begin{enumerate}\setcounter{enumi}{3}
+\item 策略六SBERT概念分解失败（auto/aug $r=0.93$），
+      但\textbf{Gemini LLM评分改进版}实现近正交分解（$r=-0.06$），
+      发现\textbf{增强暴露$\times$Post-2023显著}（$p=0.023$）——
+      高增强性职业在ChatGPT发布后呈现差异化entropy趋势。
+\item LDA主题分解（策略七）：NRA份额边际显著（$p=0.092$），但方向与增强假说不一致。
+\item ILO理论评分与中国市场实际AI采纳脱节（$r=0.10$），
+      直接采纳度量下RM份额显著（$p=0.044$）。
+\end{enumerate}
+
+\textbf{第三层（策略九）：任务关键词 + 暴露分解——核心发现}
+
+\begin{enumerate}\setcounter{enumi}{6}
+\item \textbf{方法论突破}：
+      基于实际任务内容的替代/增强分解产生近正交维度（$r=-0.096$），
+      直接从招聘全文提取任务关键词替代不可解释的entropy。
+
+\item \textbf{NRA $\times$ 增强暴露}（$p<0.001$）：
+      高增强暴露职业在2024年的非例行分析型任务关键词
+      \textbf{显著增加}（$+1.31$，$p=0.013$），
+      方向\textbf{完全符合AI增强假说}——
+      AI正在增加分析、设计、研发等高阶认知任务的需求。
+
+\item \textbf{NRI $\times$ 增强暴露}（$p=0.007$）：
+      高增强暴露职业在2023--2024年的互动型任务关键词
+      \textbf{显著减少}（$p\approx 0.05$），
+      可能反映AI聊天机器人/智能客服正在替代部分人际互动任务。
+
+\item 策略1--5的null result并非``无效应''，
+      而是\textbf{聚合掩盖}：entropy同时包含了上升的NRA和下降的NRI，
+      在聚合后相互抵消。
+      策略六（Gemini改进版）和策略九的证据相互印证：
+      只有将AI暴露分解为替代/增强维度（策略六$p=0.023$，策略九$p<0.001$），
+      并/或将结果变量分解为任务维度（策略九），
+      真实效应才能浮现。
+\end{enumerate}
+
+\end{resultbox}
+
+
+\end{document}

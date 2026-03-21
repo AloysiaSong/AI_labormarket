@@ -1,0 +1,546 @@
+%% report_v1.tex
+%% 岗位综合化趋势研究：LDA结果报告（2019数据补充后）与下一步规划
+%% 更新：2026-02-20
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\geometry{margin=2.5cm}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\title{\textbf{中国劳动力市场岗位综合化趋势研究}\\
+\large LDA分析报告（2019数据补充后）与下一步规划}
+\author{}
+\date{2026年2月20日}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%% ============================================================
+\section{数据管道更新：2019年数据补充}
+%% ============================================================
+
+\subsection{问题背景}
+
+在上一版本的分析中，主数据文件 \texttt{all\_in\_one2\_dedup\_added.csv} 中2019年共有19,726条记录，
+但其中19,709条（99.9\%）的 \texttt{cleaned\_requirements} 字段为空，导致2019年进入LDA分析的有效样本仅有13条，
+严重低估了该年度的数据覆盖。
+
+\subsection{修复方案}
+
+\begin{enumerate}
+    \item \textbf{档案数据识别}：定位归档恢复文件\\
+    \texttt{data/archive\_recovery/unified/wayback\_2019\_allinone\_schema\_hybrid\_cache\_local\_v1\_dedup.csv}\\
+    该文件包含19,709条2019年记录，全部含有有效 \texttt{职位描述} 字段。
+
+    \item \textbf{文本提取}：对归档文件的 \texttt{职位描述} 列应用与主管道一致的
+    \texttt{extract\_requirements()} 函数，提取岗位要求文本；过滤后保留18,973条有效记录（字符数$\geq$20）。
+
+    \item \textbf{非破坏性合并}：构建 \texttt{all\_in\_one2\_dedup\_added\_v2.csv}：
+    \begin{itemize}
+        \item 保留原文件全部非2019年记录（8,575,139条）
+        \item 保留原有17条有效2019年记录
+        \item 追加18,973条归档恢复记录
+        \item 合计：8,594,129条，2019年合计18,990条
+    \end{itemize}
+
+    \item \textbf{时间窗口重建}：仅重建受影响的 \texttt{window\_2018\_2019.csv}，
+    经境内城市过滤后2019年保留18,212条。
+\end{enumerate}
+
+\subsection{管道重跑结果}
+
+按照 step1\_preprocess $\to$ step2\_train\_fast $\to$ step3\_infer $\to$ create\_sorted\_results $\to$ prepare\_joint\_mapping\_industry20 顺序完整重跑，各节点核心统计如下：
+
+\begin{table}[H]
+\centering
+\caption{各数据层2019年样本量变化}
+\begin{tabular}{lrr}
+\toprule
+数据层 & 修复前 & 修复后 \\
+\midrule
+\texttt{processed\_corpus.jsonl} & 13 & 17,867 \\
+\texttt{final\_results\_sample\_sorted.csv} & 13 & 17,372 \\
+\texttt{master\_joint\_industry20\_analysis.csv} & 13 & 17,372 \\
+\texttt{yearly\_industry20\_entropy\_metrics.csv}（2019行数） & 1行 & 21行（覆盖全部行业） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{注}：2019年有效样本（17,372条）仍显著少于相邻年份（2018年418,534条；2021年1,236,730条），
+原因在于2019年数据来源为网络归档恢复，存在选择性覆盖问题（见第\ref{sec:data_issues}节）。
+
+%% ============================================================
+\section{LDA核心结果：岗位综合化趋势}
+%% ============================================================
+
+\subsection{总体趋势}
+
+使用全局LDA模型（K=50主题，1000次迭代，10\%随机采样训练），对779.5万条岗位描述进行主题分布推断。
+综合化程度以归一化香农熵（Entropy）度量，取值区间$[0,1]$，值越高表明岗位技能分布越均匀（更综合化）；
+同时计算赫芬达尔--赫希曼指数（HHI）作为集中度辅助指标，值越高表明越专业化。
+
+\begin{table}[H]
+\centering
+\caption{年度总体综合化指标（主样本年份）}
+\begin{tabular}{lrrrr}
+\toprule
+年份 & 样本量 & 平均Entropy & 平均HHI & Entropy年均增速 \\
+\midrule
+2016 & 487,053 & 0.3930 & 0.4567 & -- \\
+2017 & 872,174 & 0.3947 & 0.4538 & +0.43\% \\
+2018 & 418,534 & 0.3927 & 0.4568 & $-$0.51\% \\
+2019 & 17,372$^*$ & 0.2971 & 0.6399 & $-$$^*$ \\
+2020 & 1,352$^*$ & 0.4304 & 0.4221 & $-$$^*$ \\
+2021 & 1,236,730 & 0.4211 & 0.4286 & -- \\
+2022 & 2,323,799 & 0.4262 & 0.4216 & +1.21\% \\
+2023 & 1,243,166 & 0.4275 & 0.4195 & +0.30\% \\
+2024 & 1,173,246 & 0.4337 & 0.4121 & +1.45\% \\
+2025 & 21,258$^*$ & 0.4643 & 0.3895 & +7.05\%$^*$ \\
+\midrule
+\multicolumn{2}{l}{\textbf{2016$\to$2024整体增幅}} & \multicolumn{3}{l}{$+$0.0407（$+$10.4\%，年均$+$1.3\%）} \\
+\bottomrule
+\multicolumn{5}{l}{$^*$ 该年份样本量过少（$<$25,000），估计值不稳健，解读需谨慎。}
+\end{tabular}
+\end{table}
+
+\textbf{核心发现}：2016--2024年间，岗位综合化程度呈持续上升趋势，
+平均Entropy从0.393上升至0.434，增幅约10.4\%，HHI对应下降9.8\%。
+这一趋势在可靠样本年份（2016--2018、2021--2024）中均稳健存在，
+不受2019、2020、2025年稀疏样本干扰。
+
+\subsection{行业异质性}
+
+\subsubsection{国标20门类行业比较}
+
+下表列示各门类行业在2016、2021、2024年的平均Entropy及2016--2024增幅，
+按增幅降序排列（仅包含 \texttt{valid\_sample=True} 的观测值）：
+
+\begin{table}[H]
+\centering
+\caption{各行业综合化指标及2016--2024增幅（按增幅排序）}
+\begin{tabular}{clrrrr}
+\toprule
+代码 & 行业门类 & 2016 & 2021 & 2024 & 增幅 \\
+\midrule
+I & 信息传输、软件和信息技术服务业 & 0.3929 & 0.4215 & 0.4367 & +11.0\% \\
+P & 教育 & 0.3913 & 0.4213 & 0.4350 & +11.1\% \\
+Q & 卫生和社会工作 & 0.3918 & 0.4214 & 0.4341 & +10.8\% \\
+G & 交通运输、仓储和邮政业 & 0.3959 & 0.4196 & 0.4327 & +9.3\% \\
+L & 租赁和商务服务业 & 0.3925 & 0.4227 & 0.4333 & +10.4\% \\
+M & 科学研究和技术服务业 & 0.3931 & 0.4231 & 0.4360 & +10.9\% \\
+J & 金融业 & 0.3929 & 0.4223 & 0.4349 & +10.7\% \\
+E & 建筑业 & 0.3936 & 0.4225 & 0.4334 & +10.1\% \\
+R & 文化、体育和娱乐业 & 0.3941 & 0.4240 & 0.4380 & +11.1\% \\
+K & 房地产业 & 0.3949 & 0.4194 & 0.4347 & +10.1\% \\
+C & 制造业 & 0.3930 & 0.4207 & 0.4323 & +10.0\% \\
+F & 批发和零售业 & 0.3943 & 0.4199 & 0.4323 & +9.6\% \\
+O & 居民服务、修理和其他服务业 & 0.3919 & 0.4209 & 0.4349 & +11.0\% \\
+D & 电力、热力、燃气及水生产和供应业 & 0.3913 & 0.4202 & 0.4319 & +10.4\% \\
+N & 水利、环境和公共设施管理业 & 0.3989 & 0.4170 & 0.4328 & +8.5\% \\
+H & 住宿和餐饮业 & 0.3972 & 0.4195 & 0.4326 & +8.9\% \\
+A & 农、林、牧、渔业 & 0.3925 & 0.4189 & 0.4303 & +9.6\% \\
+B & 采矿业 & 0.3977 & 0.4326 & 0.4344 & +9.2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{基于两套增长理论的异质性分析}
+
+\paragraph{理论框架一：新古典增长模型（Solow, 1956）——要素密集度维度}
+
+新古典增长理论以资本--劳动比率（$K/L$）刻画生产函数，
+并通过资本--技能互补性（capital-skill complementarity，Griliches, 1969；
+Krusell et al., 2000）预测：资本密集型部门更早采纳节省劳动力的新技术，
+从而率先对人力资本的广度（generalist skill）产生需求。
+
+按照行业物质资本密集程度（参照国家统计局固定资产投资强度分类及标准文献），
+将20门类划分为两组：
+
+\begin{table}[H]
+\centering
+\caption{新古典框架：资本密集度分组与综合化增幅（2016--2024）}
+\begin{tabular}{llp{5.5cm}rrl}
+\toprule
+分组 & 涵盖门类 & 经济特征 & 2016 & 2024 & $\Delta$（\%） \\
+\midrule
+资本密集型 & D、B、E、G、K、I &
+  高固定资本/产出比；基础设施、能源、建筑、交通、地产；ICT含大量网络资本 &
+  0.3936 & 0.4347 & +10.4\% \\
+劳动密集型 & C、A、H、F、O、N、P、Q、L、M、R &
+  劳动投入占主导；制造、农业、服务、教育、卫生、研究 &
+  0.3930 & 0.4332 & +10.2\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{结论}：两组增幅几乎相同（差距仅0.2个百分点），
+新古典资本/劳动维度的区分力弱。这与资本--技能互补性假说的预测不一致，
+暗示综合化上升背后可能有超越要素替代逻辑的机制在发挥作用。
+
+\paragraph{理论框架二：内生增长模型——知识密集度维度}
+
+Romer（1990）的内生增长模型将经济划分为三部门：
+最终产品部门、中间品部门、以及生成知识外溢（knowledge spillovers）的\textbf{思想/前沿部门}（ideas sector）。
+Lucas（1988）则强调\textbf{人力资本积累}是长期增长的引擎。
+Acemoglu（2002）的技术定向变迁（directed technical change）进一步预测：
+新技术首先被技能密集型部门采纳，并反过来引导创新向该部门集中。
+
+这一框架为技能综合化的跨行业差异提供了如下理论预测：
+\begin{itemize}
+    \item \textbf{思想/前沿部门}（Ideas sector）：I（ICT）、M（科研技术）、
+    J（金融，含金融创新）、R（文化创意）——
+    直接产出知识，员工需横跨多领域知识边界，综合化提升最快；
+    \item \textbf{人力资本密集部门}（Human capital sector）：P（教育）、Q（卫生）、L（商务服务）——
+    产出依赖人力资本积累，且随专业分工细化，对跨领域能力的需求同步扩张；
+    \item \textbf{物质资本密集部门}：D（能源）、E（建筑）、B（采矿）、G（交通）、K（地产）——
+    生产函数以物质资本为核心，人力资本需求相对稳定，综合化增速居中；
+    \item \textbf{劳动密集生产部门}（Labor-intensive）：C（制造）、A（农业）、H（餐饮）、F（零售）、O（居民服务）、N（环境公用）——
+    技术壁垒低，岗位分工固化，综合化提升最慢。
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{内生增长框架：知识密集度分组与综合化增幅（2016--2024）}
+\begin{tabular}{llrrrr}
+\toprule
+分组（理论归属） & 涵盖门类 & 2016 & 2021 & 2024 & $\Delta$（\%） \\
+\midrule
+思想/前沿部门（Romer） & I、M、J、R & 0.3931 & 0.4220 & 0.4364 & \textbf{+11.0\%} \\
+人力资本密集（Lucas） & P、Q、L & 0.3919 & 0.4218 & 0.4338 & +10.7\% \\
+物质资本密集 & D、E、B、G、K & 0.3945 & 0.4203 & 0.4334 & +9.9\% \\
+劳动密集生产（Solow剩余） & C、A、H、F、O、N & 0.3935 & 0.4202 & 0.4324 & +9.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{结论}：内生增长框架显示出与理论预测一致的梯度结构：
+思想/前沿部门（+11.0\%）$>$ 人力资本密集（+10.7\%）$>$ 物质资本及劳动密集（+9.9\%），
+总体梯度约1.1个百分点。尽管绝对差异尚窄，方向与Romer--Lucas框架的预测高度吻合：
+知识生产和人力资本积累最活跃的部门，其岗位技能综合化提速最快。
+
+值得注意的是，2021--2024年间，思想/前沿部门与劳动密集部门之间的差距有所扩大
+（2021年两者均约0.420，2024年分别为0.436和0.432），
+与大模型出现后AI技术优先渗透知识密集型行业的叙事相符。
+这将在后续DID检验中进一步量化（见第\ref{sec:plan_ai}节）。
+
+\subsection{技能结构演化：Alignment存活率}
+
+基于主题对齐分析，各时间窗口间的主题存活率如下：
+
+\begin{table}[H]
+\centering
+\caption{时间窗口间主题存活率（有效行业加总）}
+\begin{tabular}{llrr}
+\toprule
+窗口起点 & 窗口终点 & 来源样本数 & 主题存活率 \\
+\midrule
+2016--2017 & 2018--2019 & 1,359,195 & 80.5\% \\
+2018--2019 & 2020--2021 & 435,896 & 64.5\% \\
+2020--2021 & 2022--2023 & 1,238,070 & 73.2\% \\
+2022--2023 & 2024--2025 & 3,566,965 & 61.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{注}：2018--2019窗口样本偏少（2019年仍欠缺覆盖），存活率估计偏低，
+建议后续对该窗口结论保持审慎。
+
+%% ============================================================
+\section{数据问题与局限性}
+\label{sec:data_issues}
+%% ============================================================
+
+\subsection{2019年数据稀疏问题}
+
+尽管完成了归档补充，2019年样本（17,372条）仍比相邻年份少一个数量级。
+根本原因是归档恢复文件本身存在选择性覆盖（网络爬虫爬取时间分布不均），
+而非原始市场活动稀少。2019年Entropy均值（0.297）显著低于其他年份，
+这一"下沉"很可能是数据覆盖偏差的产物，而非真实的专业化程度回升，
+\textbf{不建议将2019年估计值纳入主要趋势回归}。
+
+\subsection{2020年数据极度稀疏}
+
+2020年仅有1,352条有效记录，可能反映新冠疫情期间招聘停滞，
+同时也可能含有覆盖偏差。建议在回归分析中以虚拟变量控制或整体剔除该年。
+
+\subsection{行业映射不确定性}
+
+联合映射中"U 未识别/其他"占比约16\%--17\%，
+这类记录因公司名称过于模糊、岗位名称无明显行业特征而无法归类，
+可能在特定行业中引入系统性遗漏。
+
+%% ============================================================
+\section{下一步研究规划}
+\label{sec:nextplan}
+%% ============================================================
+
+\subsection{数据缺失与样本修复}
+\label{sec:plan_data}
+
+\begin{enumerate}[label=\textbf{\arabic*.}]
+    \item \textbf{2019年处理策略}：在回归中将2019纳入时，需插入 \texttt{d2019} 虚拟变量，
+    或采用2018与2021年的线性内插值作为稳健性检验对照。
+    后续可检索是否存在其他可靠的2019归档来源（如互联网档案馆Wayback Machine延伸爬取）。
+
+    \item \textbf{2020年处理策略}：鉴于样本极小且受疫情冲击，
+    可在主回归中设 \texttt{d2020} 虚拟变量控制离群效应；
+    另可探索是否有其他数据源（如BOSS直聘公开数据、猎聘等）可补充2020年覆盖。
+
+    \item \textbf{行业映射改进}：对"U 未识别"子集增加关键词规则库或利用BERT进行分类，
+    降低噪声占比；同时对关键行业（I、C、J）的映射结果做人工抽样验证。
+\end{enumerate}
+
+\subsection{行业分类方案优化}
+\label{sec:plan_industry}
+
+当前国标20门类是标准行政分类，但经济含义模糊。建议构建两套并行分类方案：
+
+\subsubsection{方案A：经济功能分组（粗粒度，5类）}
+
+\begin{table}[H]
+\centering
+\caption{拟议经济功能分组}
+\begin{tabular}{lll}
+\toprule
+分组名称 & 涵盖门类 & 经济逻辑 \\
+\midrule
+技术/数字驱动型 & I（ICT）、M（科研技术）、J（金融） & 知识密集，数字化先发 \\
+专业服务型 & L（商务）、P（教育）、Q（卫生） & 人力密集，监管驱动 \\
+消费服务型 & F（零售）、H（餐饮）、R（文娱）、O（居民服务） & 需求导向，低壁垒 \\
+实体生产型 & C（制造）、D（电力）、E（建筑）、A（农业）、B（采矿） & 物理流程，资本密集 \\
+基础设施/地产型 & G（交通）、N（环境）、K（房地产） & 空间固着，周期性强 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{方案B：技术采纳强度分组（细粒度，与AI暴露指标联动）}
+
+参照Gmyrek et al.（2025）的ISCO-08任务自动化框架，
+将各门类行业按"技术采纳强度"分为高/中/低三档，
+与岗位级AI暴露指数结合，形成交叉分析维度（见第\ref{sec:plan_ai}节）。
+
+\textbf{研究假设}：技术驱动型行业中，综合化增幅快于其他行业，
+且该效应在AI大模型出现（2022年后）后加速。具体可用差中差（DID）设计验证：
+以行业AI暴露程度（高/低）为处理组，以2023年ChatGPT类产品的中文落地时点为处理事件。
+
+\subsection{AI暴露指标构建}
+\label{sec:plan_ai}
+
+\subsubsection{文献参照}
+
+本研究参考ILO Working Paper 140（Gmyrek, Berg et al., 2025）
+构建的"生成式AI职业暴露指数"框架。该框架的核心逻辑如下：
+
+\begin{enumerate}
+    \item 以ISCO-08职业分类为单位，收集该职业下的全部任务列表；
+    \item 对每项任务评估"生成式AI可完成度"（0--4级渐进暴露梯度）；
+    \item 汇总至职业层面，生成职业级暴露指数；
+    \item 进而映射到行业/宏观层面。
+\end{enumerate}
+
+\subsubsection{中国劳动力市场的适应性挑战}
+
+直接套用上述指数在中国市场面临以下挑战：
+
+\begin{itemize}
+    \item \textbf{职业分类差异}：国内通用《中华人民共和国职业分类大典》（2022版）
+    与ISCO-08的对应关系需额外映射；
+
+    \item \textbf{时间基准模糊}：中国大语言模型（如文心一言、通义千问）密集落地时间在
+    2023年Q1--Q2，但从技术发布到招聘广告调整存在6--18个月的滞后；
+
+    \item \textbf{数据颗粒度限制}：本项目数据以岗位广告为单位，
+    缺乏精确的职业代码，难以直接对接现有暴露指数。
+\end{itemize}
+
+\subsubsection{可行的操作化方案（由粗到细）}
+
+\paragraph{方案一（粗粒度）：行业级暴露指数}
+
+借用现有文献中已有的行业/职业层面AI暴露估计（如Felten et al.，2023；
+Eloundou et al.，2024；Gmyrek et al.，2025），
+通过行业代码映射到本项目的国标20门类，得到行业级AI暴露得分 $\text{AIExposure}_{j}$。
+该方案操作简单但精度有限，适合初步探索性检验。
+
+\paragraph{方案二（中粒度）：岗位名称关键词匹配}
+
+构建"高AI暴露岗位关键词词典"（如：数据分析、算法工程师、运营、内容创作、
+法务助理等），对本项目179万+个唯一岗位名称进行匹配，
+赋予岗位级AI暴露二值虚拟变量 $\text{AIJob}_{it}$。
+该词典可参考Gmyrek et al.（2025）中任务自动化梯度4级对应的职业任务描述加以汉化。
+
+\paragraph{方案三（细粒度）：岗位描述语义嵌入}
+
+利用SBERT/BGE将岗位描述嵌入，与已知高AI暴露任务描述计算余弦相似度，
+得到连续AI暴露得分。此方案与本项目现有SBERT管道高度兼容，
+但需要高质量的"AI可替代任务"种子描述语料。
+
+\textbf{建议优先推进方案一+方案二并行，作为主回归和稳健性检验。}
+
+\subsection{岗位描述字数控制}
+\label{sec:plan_wordcount}
+
+现有Entropy指标可能部分反映招聘广告字数增加，
+而非真实的技能需求多样化（"词袋膨胀"问题）。需要在回归中控制岗位描述长度。
+
+\subsubsection{控制变量构建}
+
+对每条记录提取 \texttt{cleaned\_requirements} 的分词后词符数（token count），
+作为控制变量 $\log(\text{TokenCount}_{it})$，纳入如下岗位级回归：
+
+\begin{equation}
+\text{Entropy}_{it} = \alpha + \beta_1 \cdot t + \beta_2 \cdot \log(\text{TokenCount}_{it}) + \gamma \cdot X_{it} + \varepsilon_{it}
+\end{equation}
+
+其中 $t$ 为年份趋势，$X_{it}$ 为其他控制变量（行业、城市、学历要求等）。
+
+\subsubsection{操作路径}
+
+\begin{enumerate}
+    \item 在 \texttt{create\_sorted\_results.py} 中额外输出 \texttt{token\_count} 列；
+    \item 将其合并进 \texttt{master\_joint\_industry20\_analysis.csv}；
+    \item 在回归时作为协变量控制。
+\end{enumerate}
+
+\textbf{预期}：控制字数后，Entropy上升趋势应大体保持，
+否则说明综合化趋势系假象，需重新诠释。
+
+\subsection{技能计数与任务计数（LDA稳健性检验）}
+\label{sec:plan_skill}
+
+单一LDA指标存在以下局限：主题数K的选择主观性强、主题含义难以解释、
+推断采用折叠近似而非完整Gibbs采样。建议构建至少一个替代指标作为稳健性参照。
+
+\subsubsection{方案一：ESCO技能计数（较成熟）}
+
+项目已有ESCO汉化词典（\texttt{data/esco/jieba\_dict/esco\_jieba\_dict.txt}）和
+技能元数据（\texttt{skill\_metadata.csv}）。对每条岗位描述计算命中的ESCO技能数量
+$\text{SkillCount}_{it}$，作为"技能广度"的直接计数指标：
+
+\begin{equation}
+\text{SkillCount}_{it} = \left|\{s \in \text{ESCO} : s \in \text{tokens}_{it}\}\right|
+\end{equation}
+
+该指标直观、可解释，缺点是依赖ESCO词典的翻译质量。
+
+\subsubsection{方案二：任务对计数（Task-pair Count）}
+
+参考Brynjolfsson et al.（2018）的任务对方法，统计岗位描述中出现的跨领域任务对
+（已有 \texttt{task2\_3\_taskpair\_extraction\_report}），
+用任务对数量 $\text{TaskPairCount}_{it}$ 度量岗位的跨界性。
+
+\subsubsection{实施优先级}
+
+\begin{enumerate}
+    \item 首先实施ESCO技能计数（数据管道已就位，成本低）；
+    \item 验证 $\text{SkillCount}$ 与 $\text{Entropy}$ 的时间趋势是否一致；
+    \item 若一致，可将两者同时呈现为主结果和稳健性结果。
+\end{enumerate}
+
+%% ============================================================
+\section{下一步执行路线图}
+%% ============================================================
+
+\begin{table}[H]
+\centering
+\caption{下一步任务优先级与依赖关系}
+\begin{tabular}{clll}
+\toprule
+优先级 & 任务 & 依赖 & 预计工作量 \\
+\midrule
+P1 & 在 create\_sorted\_results.py 中添加 token\_count 输出 & 无 & 0.5天 \\
+P1 & ESCO技能计数：对全部7.8M条记录计算SkillCount & token\_count & 1天 \\
+P1 & 将token\_count、SkillCount合并进主分析表 & 上两项 & 0.5天 \\
+P2 & 构建行业级AI暴露指数（方案一：文献映射） & 无 & 1天 \\
+P2 & 岗位名称AI关键词词典（方案二） & 无 & 1--2天 \\
+P2 & 经济功能分组（5类）回归分析 & token\_count & 1天 \\
+P3 & 2019/2020年缺失数据敏感性检验 & 上述指标 & 0.5天 \\
+P3 & SBERT语义AI暴露得分（方案三） & SBERT管道 & 3--5天 \\
+P3 & 最终面板回归（DID设计，AI×时间趋势） & 全部上述 & 2天 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{回归设计草案}
+
+主回归建议采用以下面板结构：
+
+\begin{equation}
+\text{Entropy}_{ijt} = \alpha_j + \alpha_t + \beta_1 \cdot \text{Post}_{t} \times \text{AIExposure}_j + \beta_2 \cdot \log(\text{TokenCount}_{it}) + \gamma \cdot X_{it} + \varepsilon_{ijt}
+\end{equation}
+
+其中：
+\begin{itemize}
+    \item $i$ 为岗位，$j$ 为行业，$t$ 为年份；
+    \item $\alpha_j$：行业固定效应；$\alpha_t$：年份固定效应；
+    \item $\text{Post}_t = \mathbf{1}[t \geq 2023]$：ChatGPT等大模型中文落地后哑变量
+    （考虑6--12月招聘滞后，可调整为$t \geq 2024$做敏感性检验）；
+    \item $\text{AIExposure}_j$：行业级AI暴露强度（连续或分位数哑变量）；
+    \item $X_{it}$：学历要求、城市层级、招聘规模等岗位特征控制变量。
+\end{itemize}
+
+\textbf{核心系数}：$\beta_1 > 0$ 表明高AI暴露行业在大模型落地后综合化加速，
+支持"AI驱动技能结构转型"假说。
+
+%% ============================================================
+\section{附录：关键文件路径}
+%% ============================================================
+
+\begin{table}[H]
+\centering
+\caption{本阶段核心输出文件}
+\begin{tabular}{ll}
+\toprule
+用途 & 路径 \\
+\midrule
+主分析表 & \texttt{data/Heterogeneity/master\_joint\_industry20\_analysis.csv} \\
+年度行业熵指标 & \texttt{data/Heterogeneity/yearly\_industry20\_entropy\_metrics.csv} \\
+窗口存活率 & \texttt{data/Heterogeneity/industry20\_alignment\_survival\_metrics.csv} \\
+整数ID结果 & \texttt{data/Heterogeneity/final\_results\_sample\_sorted.csv} \\
+ID重建映射 & \texttt{data/Heterogeneity/reconstructed\_id\_company\_job\_sorted.csv} \\
+2019归档提取 & \texttt{data/processed/deduped/archive\_2019\_extracted.csv} \\
+主数据v2 & \texttt{data/processed/deduped/all\_in\_one2\_dedup\_added\_v2.csv} \\
+LDA模型 & \texttt{output/global\_lda\_fast.bin} \\
+主题演化事件 & \texttt{output/lda/alignment/topic\_evolution\_events.csv} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection*{参考文献（本规划引用）}
+
+\begin{itemize}
+    \item Gmyrek, P., Berg, J., Kamiński, K., et al. (2025).
+    \textit{Generative AI and Jobs: A Refined Global Index of Occupational Exposure}.
+    ILO Working Paper 140. Geneva: ILO. \url{https://doi.org/10.54394/HETP0387}
+
+    \item Eloundou, T., Manning, S., Mishkin, P., \& Rock, D. (2024).
+    GPTs are GPTs: Labor market impact potential of LLMs.
+    \textit{Science}, 384(6702), 1306--1308.
+
+    \item Felten, E., Raj, M., \& Seamans, R. (2023).
+    How Will Language Modelers like ChatGPT Affect Occupations and Industries?
+    SSRN Working Paper.
+
+    \item Brynjolfsson, E., Mitchell, T., \& Rock, D. (2018).
+    What can machines learn, and what does it mean for occupations and the economy?
+    \textit{AEA Papers and Proceedings}, 108, 43--47.
+\end{itemize}
+
+\end{document}

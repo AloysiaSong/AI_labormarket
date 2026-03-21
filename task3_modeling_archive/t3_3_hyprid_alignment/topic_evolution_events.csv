@@ -1,0 +1,169 @@
+window_from,window_to,event_type,source_topics,target_topics,similarity,topic_count
+window_2016_2017,window_2018_2019,survival,[np.int64(0)],[np.int64(30)],0.980250096061884,1
+window_2016_2017,window_2018_2019,survival,[np.int64(1)],[np.int64(10)],0.9419872254287263,1
+window_2016_2017,window_2018_2019,survival,[np.int64(3)],[np.int64(47)],0.9629478557275266,1
+window_2016_2017,window_2018_2019,survival,[np.int64(4)],[np.int64(19)],0.995187463262453,1
+window_2016_2017,window_2018_2019,survival,[np.int64(5)],[np.int64(24)],0.9756534241106761,1
+window_2016_2017,window_2018_2019,survival,[np.int64(7)],[np.int64(8)],0.9483177490105306,1
+window_2016_2017,window_2018_2019,survival,[np.int64(8)],[np.int64(43)],0.8950857185210986,1
+window_2016_2017,window_2018_2019,survival,[np.int64(10)],[np.int64(12)],0.9746325776614894,1
+window_2016_2017,window_2018_2019,survival,[np.int64(12)],[np.int64(29)],0.7317072114187486,1
+window_2016_2017,window_2018_2019,survival,[np.int64(14)],[np.int64(31)],0.9934805906892337,1
+window_2016_2017,window_2018_2019,survival,[np.int64(16)],[np.int64(27)],0.7100528170796966,1
+window_2016_2017,window_2018_2019,survival,[np.int64(17)],[np.int64(35)],0.914275622947597,1
+window_2016_2017,window_2018_2019,survival,[np.int64(18)],[np.int64(21)],0.9890752158919168,1
+window_2016_2017,window_2018_2019,survival,[np.int64(20)],[np.int64(6)],0.9121207717504165,1
+window_2016_2017,window_2018_2019,survival,[np.int64(21)],[np.int64(33)],0.9804364030827237,1
+window_2016_2017,window_2018_2019,survival,[np.int64(22)],[np.int64(11)],0.9717346525074557,1
+window_2016_2017,window_2018_2019,survival,[np.int64(23)],[np.int64(3)],0.9870076514586916,1
+window_2016_2017,window_2018_2019,survival,[np.int64(24)],[np.int64(25)],0.9602969098105181,1
+window_2016_2017,window_2018_2019,survival,[np.int64(25)],[np.int64(9)],0.9527516300718981,1
+window_2016_2017,window_2018_2019,survival,[np.int64(26)],[np.int64(41)],0.9887423916607471,1
+window_2016_2017,window_2018_2019,survival,[np.int64(27)],[np.int64(48)],0.9828554771898779,1
+window_2016_2017,window_2018_2019,survival,[np.int64(28)],[np.int64(37)],0.9246424009229912,1
+window_2016_2017,window_2018_2019,survival,[np.int64(29)],[np.int64(5)],0.9733641582595526,1
+window_2016_2017,window_2018_2019,survival,[np.int64(30)],[np.int64(20)],0.8576693635107902,1
+window_2016_2017,window_2018_2019,survival,[np.int64(31)],[np.int64(23)],0.9690734177917173,1
+window_2016_2017,window_2018_2019,survival,[np.int64(32)],[np.int64(36)],0.9798440834110606,1
+window_2016_2017,window_2018_2019,survival,[np.int64(34)],[np.int64(38)],0.9529395063400103,1
+window_2016_2017,window_2018_2019,survival,[np.int64(35)],[np.int64(45)],0.9175379020853606,1
+window_2016_2017,window_2018_2019,survival,[np.int64(36)],[np.int64(49)],0.7199329106240283,1
+window_2016_2017,window_2018_2019,survival,[np.int64(37)],[np.int64(34)],0.7066958302160241,1
+window_2016_2017,window_2018_2019,survival,[np.int64(38)],[np.int64(16)],0.7029368955879368,1
+window_2016_2017,window_2018_2019,survival,[np.int64(39)],[np.int64(39)],0.9490098587150048,1
+window_2016_2017,window_2018_2019,survival,[np.int64(40)],[np.int64(18)],0.7723166356746595,1
+window_2016_2017,window_2018_2019,survival,[np.int64(41)],[np.int64(15)],0.7031027163049001,1
+window_2016_2017,window_2018_2019,survival,[np.int64(43)],[np.int64(17)],0.9456963822697205,1
+window_2016_2017,window_2018_2019,merge,"[6, 13]",[28],0.5303010686742992,2
+window_2016_2017,window_2018_2019,merge,"[15, 45]",[40],0.6243374866567669,2
+window_2016_2017,window_2018_2019,split,[2],"[44, 14]",0.6389957998425444,2
+window_2016_2017,window_2018_2019,split,[6],"[28, 32]",0.5294962969558046,2
+window_2016_2017,window_2018_2019,split,[13],"[7, 28]",0.5731641197198197,2
+window_2016_2017,window_2018_2019,split,[45],"[1, 40]",0.62467695992828,2
+window_2018_2019,window_2020_2021,survival,[np.int64(2)],[np.int64(44)],0.7997100129611328,1
+window_2018_2019,window_2020_2021,survival,[np.int64(3)],[np.int64(13)],0.9706898241043013,1
+window_2018_2019,window_2020_2021,survival,[np.int64(4)],[np.int64(6)],0.9347392438505595,1
+window_2018_2019,window_2020_2021,survival,[np.int64(5)],[np.int64(2)],0.9866302450366267,1
+window_2018_2019,window_2020_2021,survival,[np.int64(6)],[np.int64(16)],0.9840974160368944,1
+window_2018_2019,window_2020_2021,survival,[np.int64(9)],[np.int64(9)],0.9571269962952373,1
+window_2018_2019,window_2020_2021,survival,[np.int64(10)],[np.int64(24)],0.9915728367263335,1
+window_2018_2019,window_2020_2021,survival,[np.int64(11)],[np.int64(51)],0.849682452896474,1
+window_2018_2019,window_2020_2021,survival,[np.int64(12)],[np.int64(20)],0.9398633003472938,1
+window_2018_2019,window_2020_2021,survival,[np.int64(14)],[np.int64(34)],0.7072228199375651,1
+window_2018_2019,window_2020_2021,survival,[np.int64(15)],[np.int64(19)],0.7553185535382384,1
+window_2018_2019,window_2020_2021,survival,[np.int64(17)],[np.int64(40)],0.9764255094801946,1
+window_2018_2019,window_2020_2021,survival,[np.int64(19)],[np.int64(33)],0.9591705247086435,1
+window_2018_2019,window_2020_2021,survival,[np.int64(21)],[np.int64(23)],0.8950825465499003,1
+window_2018_2019,window_2020_2021,survival,[np.int64(24)],[np.int64(4)],0.9532472255743704,1
+window_2018_2019,window_2020_2021,survival,[np.int64(25)],[np.int64(11)],0.9539935708550265,1
+window_2018_2019,window_2020_2021,survival,[np.int64(27)],[np.int64(10)],0.7519869072915905,1
+window_2018_2019,window_2020_2021,survival,[np.int64(29)],[np.int64(27)],0.7579010315078354,1
+window_2018_2019,window_2020_2021,survival,[np.int64(30)],[np.int64(3)],0.9521045761284159,1
+window_2018_2019,window_2020_2021,survival,[np.int64(31)],[np.int64(46)],0.9792759309602262,1
+window_2018_2019,window_2020_2021,survival,[np.int64(33)],[np.int64(28)],0.9791407435745345,1
+window_2018_2019,window_2020_2021,survival,[np.int64(34)],[np.int64(7)],0.7672291000417427,1
+window_2018_2019,window_2020_2021,survival,[np.int64(35)],[np.int64(41)],0.8145716057511414,1
+window_2018_2019,window_2020_2021,survival,[np.int64(36)],[np.int64(1)],0.9498187110847761,1
+window_2018_2019,window_2020_2021,survival,[np.int64(37)],[np.int64(29)],0.9461949503153596,1
+window_2018_2019,window_2020_2021,survival,[np.int64(38)],[np.int64(38)],0.8639432079582507,1
+window_2018_2019,window_2020_2021,survival,[np.int64(39)],[np.int64(48)],0.948367834989369,1
+window_2018_2019,window_2020_2021,survival,[np.int64(41)],[np.int64(22)],0.9751348290482885,1
+window_2018_2019,window_2020_2021,survival,[np.int64(43)],[np.int64(39)],0.9290306450071031,1
+window_2018_2019,window_2020_2021,survival,[np.int64(45)],[np.int64(45)],0.9810294708106775,1
+window_2018_2019,window_2020_2021,survival,[np.int64(47)],[np.int64(31)],0.8390393284372648,1
+window_2018_2019,window_2020_2021,survival,[np.int64(48)],[np.int64(17)],0.9921203438528887,1
+window_2018_2019,window_2020_2021,merge,"[20, 49, 0]",[8],0.6560306306841696,3
+window_2018_2019,window_2020_2021,merge,"[0, 49]",[26],0.5704075583536741,2
+window_2018_2019,window_2020_2021,merge,"[13, 1]",[32],0.5057713957388015,2
+window_2018_2019,window_2020_2021,merge,"[46, 42]",[35],0.6742602972894103,2
+window_2018_2019,window_2020_2021,merge,"[7, 28]",[37],0.6295746119244244,2
+window_2018_2019,window_2020_2021,split,[0],"[50, 26, 8]",0.5937309747569256,3
+window_2018_2019,window_2020_2021,split,[20],"[8, 25]",0.6541920248383156,2
+window_2018_2019,window_2020_2021,split,[28],"[0, 37, 12]",0.5875991756907066,3
+window_2018_2019,window_2020_2021,split,[46],"[35, 49, 21]",0.6145287452244143,3
+window_2018_2019,window_2020_2021,split,[49],"[8, 26]",0.6123958747263694,2
+window_2020_2021,window_2022_2023,survival,[np.int64(1)],[np.int64(32)],0.8149881647643967,1
+window_2020_2021,window_2022_2023,survival,[np.int64(2)],[np.int64(41)],0.998241215833421,1
+window_2020_2021,window_2022_2023,survival,[np.int64(3)],[np.int64(24)],0.9698109658049084,1
+window_2020_2021,window_2022_2023,survival,[np.int64(5)],[np.int64(21)],0.9908884624639316,1
+window_2020_2021,window_2022_2023,survival,[np.int64(6)],[np.int64(42)],0.9375083825240218,1
+window_2020_2021,window_2022_2023,survival,[np.int64(7)],[np.int64(37)],0.9462092148568468,1
+window_2020_2021,window_2022_2023,survival,[np.int64(8)],[np.int64(2)],0.9938821478101437,1
+window_2020_2021,window_2022_2023,survival,[np.int64(9)],[np.int64(17)],0.9737616237637192,1
+window_2020_2021,window_2022_2023,survival,[np.int64(10)],[np.int64(51)],0.9941184533546424,1
+window_2020_2021,window_2022_2023,survival,[np.int64(11)],[np.int64(30)],0.871983710357689,1
+window_2020_2021,window_2022_2023,survival,[np.int64(13)],[np.int64(31)],0.9616491302923278,1
+window_2020_2021,window_2022_2023,survival,[np.int64(16)],[np.int64(46)],0.985361218716461,1
+window_2020_2021,window_2022_2023,survival,[np.int64(17)],[np.int64(11)],0.9580117215592039,1
+window_2020_2021,window_2022_2023,survival,[np.int64(20)],[np.int64(34)],0.9484773435037261,1
+window_2020_2021,window_2022_2023,survival,[np.int64(21)],[np.int64(52)],0.7501996682801048,1
+window_2020_2021,window_2022_2023,survival,[np.int64(22)],[np.int64(47)],0.9134480213904591,1
+window_2020_2021,window_2022_2023,survival,[np.int64(23)],[np.int64(40)],0.9727562927913794,1
+window_2020_2021,window_2022_2023,survival,[np.int64(24)],[np.int64(25)],0.9622641624275351,1
+window_2020_2021,window_2022_2023,survival,[np.int64(25)],[np.int64(8)],0.772021369068761,1
+window_2020_2021,window_2022_2023,survival,[np.int64(27)],[np.int64(19)],0.8406367568931722,1
+window_2020_2021,window_2022_2023,survival,[np.int64(28)],[np.int64(35)],0.9939380117189884,1
+window_2020_2021,window_2022_2023,survival,[np.int64(29)],[np.int64(50)],0.967548507554426,1
+window_2020_2021,window_2022_2023,survival,[np.int64(31)],[np.int64(29)],0.8990929019999316,1
+window_2020_2021,window_2022_2023,survival,[np.int64(32)],[np.int64(36)],0.7081782635451194,1
+window_2020_2021,window_2022_2023,survival,[np.int64(33)],[np.int64(5)],0.8515236465329497,1
+window_2020_2021,window_2022_2023,survival,[np.int64(35)],[np.int64(9)],0.8248932661173215,1
+window_2020_2021,window_2022_2023,survival,[np.int64(37)],[np.int64(12)],0.9799899690720277,1
+window_2020_2021,window_2022_2023,survival,[np.int64(39)],[np.int64(27)],0.8629089426533036,1
+window_2020_2021,window_2022_2023,survival,[np.int64(40)],[np.int64(20)],0.9960436006715604,1
+window_2020_2021,window_2022_2023,survival,[np.int64(41)],[np.int64(48)],0.9311250209616069,1
+window_2020_2021,window_2022_2023,survival,[np.int64(43)],[np.int64(23)],0.9909675962537912,1
+window_2020_2021,window_2022_2023,survival,[np.int64(44)],[np.int64(44)],0.9182519225826513,1
+window_2020_2021,window_2022_2023,survival,[np.int64(45)],[np.int64(26)],0.9570118506213513,1
+window_2020_2021,window_2022_2023,survival,[np.int64(46)],[np.int64(45)],0.9961690920284346,1
+window_2020_2021,window_2022_2023,survival,[np.int64(48)],[np.int64(49)],0.9604088233444567,1
+window_2020_2021,window_2022_2023,survival,[np.int64(49)],[np.int64(7)],0.8297360925677744,1
+window_2020_2021,window_2022_2023,merge,"[12, 36, 0]",[0],0.6089636225071184,3
+window_2020_2021,window_2022_2023,merge,"[12, 34]",[10],0.5511146306904041,2
+window_2020_2021,window_2022_2023,merge,"[4, 19, 47]",[14],0.5527731459856461,3
+window_2020_2021,window_2022_2023,merge,"[34, 51]",[43],0.6344367302845779,2
+window_2020_2021,window_2022_2023,split,[12],"[0, 10]",0.6354735284214633,2
+window_2020_2021,window_2022_2023,split,[34],"[43, 10, 3]",0.5873592483933138,3
+window_2022_2023,window_2024_2025,survival,[np.int64(2)],[np.int64(10)],0.9826428939725952,1
+window_2022_2023,window_2024_2025,survival,[np.int64(4)],[np.int64(17)],0.8774144127491725,1
+window_2022_2023,window_2024_2025,survival,[np.int64(5)],[np.int64(5)],0.9513216451301406,1
+window_2022_2023,window_2024_2025,survival,[np.int64(8)],[np.int64(21)],0.7309796091310041,1
+window_2022_2023,window_2024_2025,survival,[np.int64(9)],[np.int64(22)],0.8774211781232214,1
+window_2022_2023,window_2024_2025,survival,[np.int64(11)],[np.int64(28)],0.9684057390083884,1
+window_2022_2023,window_2024_2025,survival,[np.int64(12)],[np.int64(14)],0.9772696971343315,1
+window_2022_2023,window_2024_2025,survival,[np.int64(13)],[np.int64(40)],0.8303742235934034,1
+window_2022_2023,window_2024_2025,survival,[np.int64(14)],[np.int64(41)],0.9702352233661478,1
+window_2022_2023,window_2024_2025,survival,[np.int64(15)],[np.int64(9)],0.7396587424823022,1
+window_2022_2023,window_2024_2025,survival,[np.int64(18)],[np.int64(35)],0.8353480579215901,1
+window_2022_2023,window_2024_2025,survival,[np.int64(19)],[np.int64(16)],0.8468390721733672,1
+window_2022_2023,window_2024_2025,survival,[np.int64(20)],[np.int64(15)],0.7990797083939336,1
+window_2022_2023,window_2024_2025,survival,[np.int64(22)],[np.int64(54)],0.7889832130471743,1
+window_2022_2023,window_2024_2025,survival,[np.int64(24)],[np.int64(7)],0.983570169836827,1
+window_2022_2023,window_2024_2025,survival,[np.int64(25)],[np.int64(39)],0.9943699263847441,1
+window_2022_2023,window_2024_2025,survival,[np.int64(26)],[np.int64(11)],0.9371065896731139,1
+window_2022_2023,window_2024_2025,survival,[np.int64(28)],[np.int64(13)],0.7445596834573999,1
+window_2022_2023,window_2024_2025,survival,[np.int64(29)],[np.int64(19)],0.894730648392152,1
+window_2022_2023,window_2024_2025,survival,[np.int64(30)],[np.int64(24)],0.7808294952302836,1
+window_2022_2023,window_2024_2025,survival,[np.int64(31)],[np.int64(20)],0.9956215706917768,1
+window_2022_2023,window_2024_2025,survival,[np.int64(32)],[np.int64(0)],0.8949371290381131,1
+window_2022_2023,window_2024_2025,survival,[np.int64(34)],[np.int64(34)],0.8057517956329691,1
+window_2022_2023,window_2024_2025,survival,[np.int64(35)],[np.int64(32)],0.9913040127407149,1
+window_2022_2023,window_2024_2025,survival,[np.int64(36)],[np.int64(31)],0.9429206523823603,1
+window_2022_2023,window_2024_2025,survival,[np.int64(37)],[np.int64(33)],0.8362523338286049,1
+window_2022_2023,window_2024_2025,survival,[np.int64(38)],[np.int64(43)],0.9475270523811997,1
+window_2022_2023,window_2024_2025,survival,[np.int64(40)],[np.int64(37)],0.9519034688438944,1
+window_2022_2023,window_2024_2025,survival,[np.int64(41)],[np.int64(30)],0.98853336865267,1
+window_2022_2023,window_2024_2025,survival,[np.int64(42)],[np.int64(6)],0.8676169135543458,1
+window_2022_2023,window_2024_2025,survival,[np.int64(43)],[np.int64(44)],0.8315325893678651,1
+window_2022_2023,window_2024_2025,survival,[np.int64(44)],[np.int64(18)],0.9526851167745918,1
+window_2022_2023,window_2024_2025,survival,[np.int64(45)],[np.int64(53)],0.9942687544430386,1
+window_2022_2023,window_2024_2025,survival,[np.int64(46)],[np.int64(36)],0.9786463999737655,1
+window_2022_2023,window_2024_2025,survival,[np.int64(47)],[np.int64(3)],0.8052919450881056,1
+window_2022_2023,window_2024_2025,survival,[np.int64(48)],[np.int64(12)],0.9802539042742051,1
+window_2022_2023,window_2024_2025,survival,[np.int64(49)],[np.int64(49)],0.8718601102284509,1
+window_2022_2023,window_2024_2025,survival,[np.int64(50)],[np.int64(45)],0.8274319172427207,1
+window_2022_2023,window_2024_2025,survival,[np.int64(52)],[np.int64(46)],0.9718158671418907,1
+window_2022_2023,window_2024_2025,merge,"[21, 51, 17]",[23],0.633693832631354,3
+window_2022_2023,window_2024_2025,merge,"[1, 10]",[52],0.5631253552152939,2
+window_2022_2023,window_2024_2025,split,[17],"[42, 23, 51]",0.508344501688643,3
+window_2022_2023,window_2024_2025,split,[21],"[23, 1, 50]",0.6439906388112268,3

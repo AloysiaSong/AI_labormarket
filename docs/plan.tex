@@ -1,0 +1,1296 @@
+%!TEX program = xelatex
+\documentclass[12pt, a4paper]{ctexart}
+\usepackage[normalem]{ulem}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable}
+\usepackage{url}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{listings}
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+}
+\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
+\setcounter{secnumdepth}{3}
+
+\setlistdepth{5}
+\renewlist{itemize}{itemize}{5}
+\renewlist{enumerate}{enumerate}{5}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=--}
+\setlist[itemize,3]{label=*}
+\setlist[enumerate,1]{label=\arabic*.}
+\setlist[enumerate,2]{label=\alph).}
+\setlist[enumerate,3]{label=\roman).}
+
+\newenvironment{note}{%
+  \begin{tcolorbox}[colback=blue!5, colframe=blue!50!black, boxrule=0.5pt, arc=2pt, breakable, title=\textbf{说明}]
+}{%
+  \end{tcolorbox}
+}
+
+\newenvironment{warning}{%
+  \begin{tcolorbox}[colback=red!5, colframe=red!50!black, boxrule=0.5pt, arc=2pt, breakable, title=\textbf{注意}]
+}{%
+  \end{tcolorbox}
+}
+
+\newenvironment{codefile}{%
+  \begin{tcolorbox}[colback=gray!5, colframe=gray!50!black, boxrule=0.5pt, arc=0pt, breakable]
+}{%
+  \end{tcolorbox}
+}
+
+\title{\textbf{LDA技能演化分析操作手册} \\ \large 基于招聘数据的动态主题建模}
+\author{操作化细则 v3.0}
+\date{2026年1月}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{项目概述}
+%==============================================================================
+
+\subsection{研究目标}
+基于2016--2024年招聘数据（约1300万条），使用LDA主题模型识别职业技能组合，并追踪技能需求的时间演化趋势。
+
+\subsection{数据现状}
+
+\begin{table}[h]
+\centering
+\caption{数据资源清单}
+\begin{tabular}{lll}
+\toprule
+\textbf{资源} & \textbf{路径} & \textbf{状态} \\
+\midrule
+清洗后数据 & \texttt{data/processed/cleaned/all\_in\_one1.csv} & 已完成 (13GB) \\
+任职要求提取 & \texttt{data/processed/extracted/all\_in\_one2.csv} & 已完成 (5.6GB) \\
+去重后数据 & \texttt{data/processed/deduped/all\_in\_one2\_dedup.csv} & 已完成 (4.5GB) \\
+ESCO技能表（EN） & \texttt{data/esco/original/ESCO dataset.../skills\_en.csv} & 已完成 \\
+ESCO分词词典 & \texttt{data/esco/jieba\_dict/esco\_jieba\_dict.txt} & 已完成（27,773词，中英双语） \\
+ESCO技能元数据 & \texttt{data/esco/jieba\_dict/skill\_metadata.csv} & 已完成（含 hard/soft/lang 分类） \\
+\midrule
+\multicolumn{3}{l}{\textbf{时间窗口数据（Task 1.2 输出）}} \\
+Phase I 数据 & \texttt{data/processed/windows/window\_2016\_2018.csv} & 已完成（2,132,073条，23.3\%） \\
+Phase II 数据 & \texttt{data/processed/windows/window\_2021\_2022.csv} & 已完成（4,186,033条，45.7\%） \\
+Phase III 数据 & \texttt{data/processed/windows/window\_2023\_2024.csv} & 已完成（2,809,953条，30.7\%） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{年份分布与时间窗口设计}
+
+\begin{warning}
+数据在2019--2020年存在明显断层（2019年仅18条，2020年仅2054条），无法支持逐年分析。
+\end{warning}
+
+\textbf{时间窗口划分方案}：
+
+\begin{table}[h]
+\centering
+\caption{时间窗口设计（AI技术代际视角）}
+\begin{tabular}{llrl}
+\toprule
+\textbf{窗口} & \textbf{年份} & \textbf{实际记录数} & \textbf{技术背景} \\
+\midrule
+Phase I & 2016--2018 & 2,132,073 (23.3\%) & AI 1.0: 深度学习渗透期 \\
+Phase II & 2021--2022 & 4,186,033 (45.7\%) & 数字化转型深化期 \\
+Phase III & 2023--2024 & 2,809,953 (30.7\%) & AI 2.0: 大模型爆发期 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{note}
+\textbf{窗口划分依据}：基于AI技术代际而非外部事件。2019--2020数据断层恰好对应技术迭代分水岭：Phase I 为AlphaGo后深度学习早期渗透；Phase III 为ChatGPT引发的大模型革命。
+\end{note}
+
+%==============================================================================
+\section{Phase 1: 词典构建与分词}
+%==============================================================================
+
+\subsection{Task 1.1: ESCO词典转jieba格式}
+
+\textbf{目标}：将ESCO技能词表转换为jieba用户词典，防止专业术语被错误切分。
+
+\textbf{输入}：\texttt{data\_cleaning/ESCO dataset - v1.2.1 - classification - en - csv/skills\_en.csv}
+
+\textbf{输出}：
+\begin{itemize}
+    \item \texttt{Test\_LDA/task1\_datacleaning/esco\_jieba\_dict.txt}
+    \item \texttt{data\_cleaning/jieba/skill\_metadata.csv}（含 soft/hard 标签）
+    \item \texttt{data\_cleaning/jieba/skills\_ch.csv}
+\end{itemize}
+
+\textbf{状态}：已完成（2026年1月28日）
+
+\begin{codefile}
+\textbf{文件}: \texttt{data\_cleaning/jieba/generate\_final\_dict.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+从清洗后的 ESCO 元数据生成 jieba 词典（所见即所得）
+"""
+import pandas as pd
+import re
+from pathlib import Path
+
+# === 配置路径（绝对路径）===
+INPUT_META = '/Users/yu/code/code2601/TY/data_cleaning/jieba/skill_metadata.csv'
+OUTPUT_DICT = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/esco_jieba_dict.txt'
+
+def main():
+    print(f"Reading source of truth: {INPUT_META}...")
+    df = pd.read_csv(INPUT_META)
+
+    if 'term' not in df.columns:
+        print("Error: 'term' column missing in metadata!")
+        return
+
+    unique_terms = df['term'].dropna().unique()
+    print(f"Found {len(unique_terms)} unique terms to strictly enforce.")
+
+    Path(OUTPUT_DICT).parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_DICT, 'w', encoding='utf-8') as f:
+        for term in unique_terms:
+            term_str = str(term).strip()
+            if not term_str:
+                continue
+            f.write(f"{term_str} 20000 nz\n")
+
+    print(f"Successfully generated {OUTPUT_DICT}.")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+\textbf{执行命令}：
+\begin{verbatim}
+python /Users/yu/code/code2601/TY/data_cleaning/jieba/generate_final_dict.py
+\end{verbatim}
+
+%------------------------------------------------------------------------------
+\subsection{Task 1.2: 按时间窗口分割数据}
+
+\textbf{目标}：将去重后的招聘数据按AI技术代际划分为三个时间窗口。
+
+\textbf{输入}：\texttt{data/processed/deduped/all\_in\_one2\_dedup.csv}
+
+\textbf{输出}：\texttt{data/processed/windows/window\_YYYY\_YYYY.csv}
+
+\textbf{状态}：已完成（2026年1月29日）
+
+\textbf{执行结果}：
+\begin{itemize}
+    \item Phase I (2016-2018): 2,132,073 条 (23.3\%)
+    \item Phase II (2021-2022): 4,186,033 条 (45.7\%)
+    \item Phase III (2023-2024): 2,809,953 条 (30.7\%)
+    \item 未纳入分析: 32,077 条 (2019: 17条, 2020: 1,479条, 2025: 30,581条)
+\end{itemize}
+
+\begin{codefile}
+\textbf{文件}: \texttt{src/cleaning/split\_by\_window.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+按时间窗口分割数据
+"""
+import pandas as pd
+import sys
+from pathlib import Path
+from tqdm import tqdm
+
+# 路径配置
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from config.paths import DEDUPED_DATA, PROCESSED_DIR
+
+INPUT_FILE = DEDUPED_DATA  # data/processed/deduped/all_in_one2_dedup.csv
+OUTPUT_DIR = PROCESSED_DIR / 'windows'
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+CHUNKSIZE = 100000
+
+# 时间窗口定义
+WINDOWS = {
+    'window_2016_2018': [2016, 2017, 2018],
+    'window_2021_2022': [2021, 2022],
+    'window_2023_2024': [2023, 2024],
+}
+
+def main():
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    # 初始化输出文件
+    file_handles = {}
+    first_chunk = {w: True for w in WINDOWS}
+    counts = {w: 0 for w in WINDOWS}
+
+    print("分割数据到各时间窗口...")
+
+    for chunk in tqdm(pd.read_csv(INPUT_FILE, chunksize=CHUNKSIZE)):
+        for window_name, years in WINDOWS.items():
+            # 筛选对应年份
+            mask = chunk['招聘发布年份'].isin(years)
+            window_data = chunk[mask]
+
+            if len(window_data) > 0:
+                output_file = Path(OUTPUT_DIR) / f"{window_name}.csv"
+                window_data.to_csv(
+                    output_file,
+                    mode='w' if first_chunk[window_name] else 'a',
+                    index=False,
+                    header=first_chunk[window_name]
+                )
+                first_chunk[window_name] = False
+                counts[window_name] += len(window_data)
+
+    # 输出统计
+    print("\n分割完成:")
+    for window_name, count in counts.items():
+        print(f"  {window_name}: {count:,} 条")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%------------------------------------------------------------------------------
+\subsection{Task 1.3: 分词与短语识别}
+
+\textbf{目标}：使用jieba+ESCO词典分词，并用Phrases模型识别固定搭配。
+
+\textbf{输入}：\texttt{data/processed/windows/window\_*.csv}
+
+\textbf{输出}：\texttt{data/processed/tokenized/}
+\begin{itemize}
+    \item \texttt{window\_*\_corpus.pkl} -- 分词后语料
+    \item \texttt{window\_*\_phraser.pkl} -- Bigram/Trigram短语模型
+    \item \texttt{window\_*\_tokenized.csv} -- 带tokenized列的CSV（便于检查）
+\end{itemize}
+
+\textbf{状态}：已完成（2026年1月29日）
+
+\textbf{执行结果}：
+\begin{itemize}
+    \item Phase I (2016-2018): 2,131,984 文档, 词表 313,614词, 平均 28.7词/文档
+    \item Phase II (2021-2022): 4,185,948 文档, 词表 379,436词, 平均 28.8词/文档
+    \item Phase III (2023-2024): 2,809,898 文档, 词表 313,353词, 平均 31.0词/文档
+    \item 总计: 9,127,830 有效文档
+\end{itemize}
+
+\begin{codefile}
+\textbf{文件}: \texttt{src/cleaning/tokenize\_with\_esco.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+使用ESCO词典进行分词+短语识别
+"""
+import jieba
+import pandas as pd
+import pickle
+from pathlib import Path
+from gensim.models import Phrases
+from gensim.models.phrases import Phraser
+from tqdm import tqdm
+import re
+
+# 路径配置
+ESCO_DICT = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/esco_jieba_dict.txt'
+WINDOW_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/windows'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/tokenized'
+
+# 加载ESCO词典
+print("加载ESCO词典...")
+jieba.load_userdict(ESCO_DICT)
+
+# 停用词（招聘文本专用）
+STOP_WORDS = set([
+    # 通用停用词
+    '的', '了', '在', '是', '有', '和', '与', '或', '等', '能', '会', '及',
+    '对', '可', '为', '被', '把', '让', '给', '向', '从', '到', '以', '于',
+    # 招聘高频无意义词
+    '负责', '具有', '具备', '熟悉', '掌握', '了解', '相关', '以上', '以下',
+    '优先', '考虑', '经验', '工作', '能力', '要求', '岗位', '公司', '企业',
+    '团队', '良好', '较强', '一定', '优秀', '专业', '学历', '年以上', '年',
+    '及以上', '左右', '不限', '若干', '可以', '需要', '进行', '开展',
+    '完成', '参与', '支持', '提供', '负责', '协助', '配合', '执行',
+])
+
+def clean_text(text: str) -> str:
+    """清理文本"""
+    if pd.isna(text):
+        return ""
+    text = str(text)
+    # 去除特殊字符，保留中英文、数字、常见符号
+    text = re.sub(r'[^\u4e00-\u9fa5a-zA-Z0-9\.\+\#\-\_\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def tokenize(text: str) -> list:
+    """分词并过滤"""
+    text = clean_text(text)
+    if not text:
+        return []
+
+    words = jieba.lcut(text)
+    # 过滤：长度>=2，非停用词，非纯数字
+    words = [w for w in words
+             if len(w) >= 2
+             and w not in STOP_WORDS
+             and not w.isdigit()
+             and not re.match(r'^[\d\.]+$', w)]
+    return words
+
+def process_window(window_file: str):
+    """处理单个时间窗口"""
+    window_name = Path(window_file).stem
+    print(f"\n处理 {window_name}...")
+
+    # 读取数据
+    df = pd.read_csv(window_file)
+    print(f"  记录数: {len(df):,}")
+
+    # Step 1: 基础分词
+    print("  Step 1: 分词...")
+    corpus = []
+    for text in tqdm(df['cleaned_requirements'], desc="分词"):
+        tokens = tokenize(text)
+        if tokens:  # 只保留非空文档
+            corpus.append(tokens)
+
+    print(f"  有效文档: {len(corpus):,}")
+
+    # Step 2: 短语识别（使用部分样本训练）
+    print("  Step 2: 训练短语模型...")
+    sample_size = min(500000, len(corpus))
+    sample = corpus[:sample_size]
+
+    # Bigram
+    bigram = Phrases(sample, min_count=100, threshold=15)
+    bigram_phraser = Phraser(bigram)
+
+    # Trigram
+    trigram = Phrases(bigram_phraser[sample], min_count=50, threshold=15)
+    trigram_phraser = Phraser(trigram)
+
+    # Step 3: 应用短语模型
+    print("  Step 3: 应用短语模型...")
+    corpus = [list(trigram_phraser[bigram_phraser[doc]]) for doc in tqdm(corpus, desc="应用短语")]
+
+    # 保存
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    corpus_file = Path(OUTPUT_DIR) / f"{window_name}_corpus.pkl"
+    with open(corpus_file, 'wb') as f:
+        pickle.dump(corpus, f)
+    print(f"  保存语料: {corpus_file}")
+
+    phraser_file = Path(OUTPUT_DIR) / f"{window_name}_phraser.pkl"
+    with open(phraser_file, 'wb') as f:
+        pickle.dump((bigram_phraser, trigram_phraser), f)
+    print(f"  保存短语模型: {phraser_file}")
+
+    # 保存带tokenized列的CSV（用于后续分析）
+    df_valid = df.iloc[:len(corpus)].copy()
+    df_valid['tokenized'] = [' '.join(doc) for doc in corpus]
+    tokenized_file = Path(OUTPUT_DIR) / f"{window_name}_tokenized.csv"
+    df_valid.to_csv(tokenized_file, index=False)
+
+    return len(corpus)
+
+def main():
+    total = 0
+    for window_file in sorted(Path(WINDOW_DIR).glob('window_*.csv')):
+        count = process_window(str(window_file))
+        total += count
+
+    print(f"\n全部完成！总文档数: {total:,}")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%==============================================================================
+\section{Phase 2: LDA模型训练}
+%==============================================================================
+
+\subsection{Task 2.1: 构建词典与BOW语料}
+
+\textbf{目标}：为每个时间窗口构建gensim词典，应用词频过滤。
+
+\textbf{输入}：\texttt{data/processed/tokenized/window\_*\_corpus.pkl}
+
+\textbf{输出}：\texttt{output/lda/dictionaries/}
+\begin{itemize}
+    \item \texttt{window\_*.dict} -- gensim词典
+    \item \texttt{window\_*.mm} -- BOW语料（Matrix Market格式）
+\end{itemize}
+
+\textbf{状态}：已完成（2026年1月29日）
+
+\textbf{执行结果}：
+\begin{itemize}
+    \item Phase I (2016-2018): 原始词汇 223,106 → 过滤后 17,137词, 2,131,930 非空文档
+    \item Phase II (2021-2022): 原始词汇 379,436 → 过滤后 30,000词, 4,185,913 非空文档
+    \item Phase III (2023-2024): 原始词汇 313,353 → 过滤后 27,836词, 2,809,876 非空文档
+    \item 过滤参数: min\_df=100, max\_df=0.4, keep\_n=30000
+\end{itemize}
+
+\begin{codefile}
+\textbf{文件}: \texttt{task2\_modeling/build\_dictionary.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+构建gensim词典，应用词频过滤
+"""
+from gensim import corpora
+import pickle
+from pathlib import Path
+
+TOKENIZED_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/tokenized'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task2_modeling/dictionaries'
+
+# 过滤参数（针对百万级数据调优）
+MIN_DF = 100      # 最小文档频率（过滤拼写错误/极罕见词）
+MAX_DF = 0.4      # 最大文档频率比例（过滤通用词）
+KEEP_N = 30000    # 保留词汇上限
+
+def process_window(window_name: str):
+    print(f"\n处理 {window_name}...")
+
+    # 加载分词后语料
+    corpus_file = Path(TOKENIZED_DIR) / f"{window_name}_corpus.pkl"
+    with open(corpus_file, 'rb') as f:
+        corpus = pickle.load(f)
+
+    print(f"  文档数: {len(corpus):,}")
+
+    # 构建词典
+    dictionary = corpora.Dictionary(corpus)
+    print(f"  原始词汇量: {len(dictionary):,}")
+
+    # 过滤极端词频
+    dictionary.filter_extremes(
+        no_below=MIN_DF,
+        no_above=MAX_DF,
+        keep_n=KEEP_N
+    )
+    print(f"  过滤后词汇量: {len(dictionary):,}")
+
+    # 构建BOW语料
+    bow_corpus = [dictionary.doc2bow(doc) for doc in corpus]
+
+    # 保存
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    dict_file = Path(OUTPUT_DIR) / f"{window_name}.dict"
+    dictionary.save(str(dict_file))
+
+    corpus_file = Path(OUTPUT_DIR) / f"{window_name}.mm"
+    corpora.MmCorpus.serialize(str(corpus_file), bow_corpus)
+
+    print(f"  保存: {dict_file}")
+
+    return len(dictionary)
+
+def main():
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+
+    for window in windows:
+        process_window(window)
+
+    print("\n词典构建完成！")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%------------------------------------------------------------------------------
+\subsection{Task 2.2: LDA模型训练}
+
+\begin{note}
+训练参数说明：
+\begin{itemize}
+    \item \texttt{num\_topics=60}: 每个窗口60个主题，平衡粒度与对齐复杂度
+    \item \texttt{passes=15}: 迭代次数，确保收敛
+    \item \texttt{alpha='auto'}: 自动学习文档-主题分布的稀疏性
+    \item \texttt{eta='auto'}: 自动学习主题-词分布的稀疏性
+    \item \texttt{chunksize=10000}: 批量大小，适配大数据
+\end{itemize}
+\end{note}
+
+\begin{codefile}
+\textbf{文件}: \texttt{task2\_modeling/train\_lda.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+为每个时间窗口训练LDA模型
+"""
+from gensim import corpora
+from gensim.models import LdaMulticore
+from gensim.models.coherencemodel import CoherenceModel
+import pickle
+from pathlib import Path
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
+DICT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task2_modeling/dictionaries'
+TOKENIZED_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/tokenized'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task2_modeling/models'
+
+# LDA超参数
+LDA_CONFIG = {
+    'num_topics': 60,
+    'passes': 15,
+    'chunksize': 10000,
+    'alpha': 'auto',
+    'eta': 'auto',
+    'iterations': 400,
+    'random_state': 42,
+    'workers': 4,  # 并行数，根据CPU核心调整
+}
+
+def train_window(window_name: str):
+    print(f"\n{'='*60}")
+    print(f"训练 {window_name}")
+    print(f"{'='*60}")
+
+    # 加载词典和语料
+    dictionary = corpora.Dictionary.load(f"{DICT_DIR}/{window_name}.dict")
+    corpus = corpora.MmCorpus(f"{DICT_DIR}/{window_name}.mm")
+
+    print(f"词汇量: {len(dictionary):,}")
+    print(f"文档数: {len(corpus):,}")
+
+    # 加载原始分词文本（用于Coherence计算）
+    with open(f"{TOKENIZED_DIR}/{window_name}_corpus.pkl", 'rb') as f:
+        raw_texts = pickle.load(f)
+
+    # 训练LDA
+    print(f"\n开始训练 (num_topics={LDA_CONFIG['num_topics']})...")
+    model = LdaMulticore(
+        corpus=list(corpus),
+        id2word=dictionary,
+        **LDA_CONFIG
+    )
+
+    # 计算Coherence
+    print("\n计算Topic Coherence...")
+    coherence_model = CoherenceModel(
+        model=model,
+        texts=raw_texts[:100000],  # 使用部分样本加速
+        dictionary=dictionary,
+        coherence='c_v'
+    )
+    coherence = coherence_model.get_coherence()
+    print(f"Coherence (Cv): {coherence:.4f}")
+
+    # 保存模型
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    model_file = f"{OUTPUT_DIR}/{window_name}_lda.model"
+    model.save(model_file)
+    print(f"模型已保存: {model_file}")
+
+    # 保存Top Words
+    topics_file = f"{OUTPUT_DIR}/{window_name}_topics.txt"
+    with open(topics_file, 'w', encoding='utf-8') as f:
+        f.write(f"Window: {window_name}\n")
+        f.write(f"Coherence: {coherence:.4f}\n")
+        f.write(f"{'='*60}\n\n")
+
+        for idx in range(model.num_topics):
+            top_words = model.show_topic(idx, topn=20)
+            words_str = ', '.join([f"{w}({p:.3f})" for w, p in top_words])
+            f.write(f"Topic {idx}: {words_str}\n\n")
+
+    print(f"主题词保存: {topics_file}")
+
+    return coherence
+
+def main():
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+
+    results = {}
+    for window in windows:
+        coherence = train_window(window)
+        results[window] = coherence
+
+    print("\n" + "="*60)
+    print("训练结果汇总")
+    print("="*60)
+    for window, coh in results.items():
+        status = "OK" if coh >= 0.40 else "WARN"
+        print(f"  {window}: Cv={coh:.4f} [{status}]")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%==============================================================================
+\section{Phase 3: 主题演化对齐}
+%==============================================================================
+
+\subsection{Task 3.1: 训练Word2Vec并向量化主题}
+
+\begin{warning}
+\textbf{向量空间对齐陷阱}：如果分窗口训练Word2Vec，不同窗口的向量空间坐标轴不同，无法直接计算余弦相似度！
+
+\textbf{解决方案}：使用\textbf{全局Word2Vec}——合并所有窗口语料训练统一模型，确保"Python"在Phase I和Phase III的向量坐标一致。
+\end{warning}
+
+\textbf{原理}：将LDA主题的词分布转换为稠密向量，公式：
+\[
+\vec{V}_{topic} = \sum_{w} P(w|topic) \cdot \vec{V}_{word}
+\]
+
+\begin{codefile}
+\textbf{文件}: \texttt{task3\_alignment/vectorize\_topics.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+主题向量化：LDA主题 -> 稠密向量
+"""
+import numpy as np
+from gensim.models import Word2Vec, LdaMulticore
+import pickle
+from pathlib import Path
+
+TOKENIZED_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task1_datacleaning/tokenized'
+MODEL_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task2_modeling/models'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task3_alignment'
+
+# Word2Vec参数
+W2V_CONFIG = {
+    'vector_size': 200,
+    'window': 5,
+    'min_count': 50,
+    'workers': 4,
+    'epochs': 10,
+}
+
+def train_word2vec():
+    """合并所有语料训练统一的Word2Vec"""
+    print("Step 1: 训练Word2Vec...")
+
+    all_corpus = []
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+
+    for window in windows:
+        with open(f"{TOKENIZED_DIR}/{window}_corpus.pkl", 'rb') as f:
+            corpus = pickle.load(f)
+            all_corpus.extend(corpus)
+
+    print(f"  总文档数: {len(all_corpus):,}")
+
+    model = Word2Vec(sentences=all_corpus, **W2V_CONFIG)
+
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    model.save(f"{OUTPUT_DIR}/word2vec.model")
+
+    print(f"  词汇量: {len(model.wv):,}")
+    print(f"  保存: {OUTPUT_DIR}/word2vec.model")
+
+    return model
+
+def vectorize_topic(lda_model, topic_id: int, w2v_model, topn: int = 50):
+    """将单个主题转换为向量"""
+    topic_words = lda_model.show_topic(topic_id, topn=topn)
+
+    vector = np.zeros(w2v_model.vector_size)
+    total_prob = 0
+
+    for word, prob in topic_words:
+        if word in w2v_model.wv:
+            vector += prob * w2v_model.wv[word]
+            total_prob += prob
+
+    # 归一化
+    if total_prob > 0:
+        vector = vector / total_prob
+
+    # L2归一化
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector / norm
+
+    return vector
+
+def vectorize_all_windows(w2v_model):
+    """向量化所有窗口的主题"""
+    print("\nStep 2: 向量化主题...")
+
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+    topic_vectors = {}
+
+    for window in windows:
+        lda_model = LdaMulticore.load(f"{MODEL_DIR}/{window}_lda.model")
+
+        vectors = []
+        for topic_id in range(lda_model.num_topics):
+            vec = vectorize_topic(lda_model, topic_id, w2v_model)
+            vectors.append(vec)
+
+        topic_vectors[window] = np.array(vectors)
+        np.save(f"{OUTPUT_DIR}/{window}_topic_vectors.npy", topic_vectors[window])
+        print(f"  {window}: shape={topic_vectors[window].shape}")
+
+    # 保存完整字典
+    with open(f"{OUTPUT_DIR}/all_topic_vectors.pkl", 'wb') as f:
+        pickle.dump(topic_vectors, f)
+
+    return topic_vectors
+
+def main():
+    w2v_model = train_word2vec()
+    vectorize_all_windows(w2v_model)
+    print("\n向量化完成！")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%------------------------------------------------------------------------------
+\subsection{Task 3.2: 混合策略对齐}
+
+\textbf{算法}：
+\begin{enumerate}
+    \item \textbf{匈牙利算法}：寻找全局最优的1-to-1匹配（Survival）
+    \item \textbf{贪婪阈值法}：检测分裂(Split)、融合(Merge)、新生(Birth)、消亡(Death)
+\end{enumerate}
+
+\begin{warning}
+\textbf{动态阈值}：由于Phase I$\to$II跨度大（隔2年），Phase II$\to$III跨度小（无缝），需使用\textbf{不同阈值}，否则前者会出现大量虚假"消亡"。
+\end{warning}
+
+\begin{table}[h]
+\centering
+\caption{动态对齐阈值设置}
+\begin{tabular}{llll}
+\toprule
+\textbf{转换} & \textbf{Survival阈值} & \textbf{Split/Merge阈值} & \textbf{理由} \\
+\midrule
+Phase I $\to$ II & 0.55 & 0.45 & 跨度大，允许更大语义漂移 \\
+Phase II $\to$ III & 0.70 & 0.60 & 跨度小，要求更严格对应 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{codefile}
+\textbf{文件}: \texttt{task3\_alignment/align\_topics.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+跨时间窗口的主题对齐
+算法：匈牙利算法 + 贪婪阈值法
+"""
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+from sklearn.metrics.pairwise import cosine_similarity
+import pickle
+import pandas as pd
+from pathlib import Path
+
+VECTOR_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task3_alignment'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task3_alignment'
+
+# 动态对齐阈值（根据窗口跨度调整）
+THRESHOLDS = {
+    ('window_2016_2018', 'window_2021_2022'): {'survival': 0.55, 'split_merge': 0.45},  # 跨度大
+    ('window_2021_2022', 'window_2023_2024'): {'survival': 0.70, 'split_merge': 0.60},  # 跨度小
+}
+
+def hungarian_alignment(sim_matrix: np.ndarray, threshold: float) -> list:
+    """匈牙利算法：1-to-1最优匹配"""
+    cost_matrix = 1 - sim_matrix
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+    alignments = []
+    for src, tgt in zip(row_ind, col_ind):
+        sim = sim_matrix[src, tgt]
+        if sim >= threshold:
+            alignments.append({
+                'source_topic': src,
+                'target_topic': tgt,
+                'similarity': sim,
+                'event': 'survival'
+            })
+
+    return alignments
+
+def detect_split_merge(sim_matrix: np.ndarray,
+                       survival_alignments: list,
+                       threshold: float) -> list:
+    """检测分裂/融合/新生/消亡"""
+    matched_sources = {a['source_topic'] for a in survival_alignments}
+    matched_targets = {a['target_topic'] for a in survival_alignments}
+
+    events = []
+
+    # Split: 已存活的source还有其他高相似target
+    for alignment in survival_alignments:
+        src = alignment['source_topic']
+        primary_tgt = alignment['target_topic']
+
+        for tgt in range(sim_matrix.shape[1]):
+            if tgt != primary_tgt and sim_matrix[src, tgt] >= threshold:
+                events.append({
+                    'source_topic': src,
+                    'target_topic': tgt,
+                    'similarity': sim_matrix[src, tgt],
+                    'event': 'split'
+                })
+
+    # Merge: 未匹配的source高度相似于已匹配的target
+    for src in range(sim_matrix.shape[0]):
+        if src not in matched_sources:
+            for tgt in matched_targets:
+                if sim_matrix[src, tgt] >= threshold:
+                    events.append({
+                        'source_topic': src,
+                        'target_topic': tgt,
+                        'similarity': sim_matrix[src, tgt],
+                        'event': 'merge'
+                    })
+
+    # Birth: 完全新的target
+    for tgt in range(sim_matrix.shape[1]):
+        if tgt not in matched_targets:
+            max_sim = sim_matrix[:, tgt].max()
+            if max_sim < threshold:
+                events.append({
+                    'source_topic': None,
+                    'target_topic': tgt,
+                    'similarity': max_sim,
+                    'event': 'birth'
+                })
+
+    # Death: 完全消失的source
+    for src in range(sim_matrix.shape[0]):
+        if src not in matched_sources:
+            max_sim = sim_matrix[src, :].max()
+            if max_sim < threshold:
+                events.append({
+                    'source_topic': src,
+                    'target_topic': None,
+                    'similarity': max_sim,
+                    'event': 'death'
+                })
+
+    return events
+
+def align_windows(vectors_t1, vectors_t2, w1, w2):
+    """对齐两个时间窗口（使用动态阈值）"""
+    print(f"\n对齐: {w1} -> {w2}")
+
+    # 获取动态阈值
+    thresholds = THRESHOLDS.get((w1, w2), {'survival': 0.60, 'split_merge': 0.50})
+    survival_th = thresholds['survival']
+    split_merge_th = thresholds['split_merge']
+    print(f"  阈值: survival={survival_th}, split_merge={split_merge_th}")
+
+    sim_matrix = cosine_similarity(vectors_t1, vectors_t2)
+
+    # Step 1: 匈牙利算法
+    survival = hungarian_alignment(sim_matrix, survival_th)
+
+    # Step 2: 分裂/融合检测
+    other_events = detect_split_merge(sim_matrix, survival, split_merge_th)
+
+    all_events = survival + other_events
+
+    df = pd.DataFrame(all_events)
+    df['source_window'] = w1
+    df['target_window'] = w2
+
+    # 统计
+    print(f"  Survival: {len([e for e in all_events if e['event']=='survival'])}")
+    print(f"  Split: {len([e for e in all_events if e['event']=='split'])}")
+    print(f"  Merge: {len([e for e in all_events if e['event']=='merge'])}")
+    print(f"  Birth: {len([e for e in all_events if e['event']=='birth'])}")
+    print(f"  Death: {len([e for e in all_events if e['event']=='death'])}")
+
+    return df, sim_matrix
+
+def main():
+    # 加载向量
+    with open(f"{VECTOR_DIR}/all_topic_vectors.pkl", 'rb') as f:
+        topic_vectors = pickle.load(f)
+
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+
+    all_events = []
+    all_matrices = {}
+
+    # 对齐相邻窗口
+    for i in range(len(windows) - 1):
+        w1, w2 = windows[i], windows[i+1]
+        events_df, sim_matrix = align_windows(
+            topic_vectors[w1], topic_vectors[w2], w1, w2
+        )
+        all_events.append(events_df)
+        all_matrices[f"{w1}_to_{w2}"] = sim_matrix
+
+    # 保存
+    final_df = pd.concat(all_events, ignore_index=True)
+    final_df.to_csv(f"{OUTPUT_DIR}/evolution_events.csv", index=False)
+
+    with open(f"{OUTPUT_DIR}/similarity_matrices.pkl", 'wb') as f:
+        pickle.dump(all_matrices, f)
+
+    print(f"\n总事件数: {len(final_df)}")
+    print(f"保存: {OUTPUT_DIR}/evolution_events.csv")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%------------------------------------------------------------------------------
+\subsection{Task 3.3: 桑基图可视化}
+
+\begin{codefile}
+\textbf{文件}: \texttt{task3\_alignment/visualize\_sankey.py}
+\begin{lstlisting}[language=Python]
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+绘制技能演化桑基图
+"""
+from pyecharts import options as opts
+from pyecharts.charts import Sankey
+import pandas as pd
+from gensim.models import LdaMulticore
+from pathlib import Path
+
+MODEL_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task2_modeling/models'
+ALIGN_DIR = '/Users/yu/code/code2601/TY/Test_LDA/task3_alignment'
+OUTPUT_DIR = '/Users/yu/code/code2601/TY/Test_LDA/outputs'
+
+def get_topic_label(lda_model, topic_id: int, topn: int = 3) -> str:
+    """获取主题标签（Top 3词）"""
+    words = lda_model.show_topic(topic_id, topn=topn)
+    return '_'.join([w for w, _ in words])
+
+def main():
+    # 加载数据
+    events_df = pd.read_csv(f"{ALIGN_DIR}/evolution_events.csv")
+    events_df = events_df[events_df['event'].isin(['survival', 'split', 'merge'])]
+
+    # 加载LDA模型
+    windows = ['window_2016_2018', 'window_2021_2022', 'window_2023_2024']
+    lda_models = {w: LdaMulticore.load(f"{MODEL_DIR}/{w}_lda.model") for w in windows}
+
+    # 构建节点和连接
+    nodes = []
+    links = []
+    node_set = set()
+
+    color_map = {
+        'survival': '#5470C6',  # 蓝色
+        'split': '#91CC75',     # 绿色
+        'merge': '#FAC858',     # 黄色
+    }
+
+    for _, row in events_df.iterrows():
+        src_w, tgt_w = row['source_window'], row['target_window']
+
+        if pd.notna(row['source_topic']):
+            src_label = f"{src_w[:7]}_{get_topic_label(lda_models[src_w], int(row['source_topic']))}"
+            if src_label not in node_set:
+                nodes.append({'name': src_label})
+                node_set.add(src_label)
+        else:
+            src_label = None
+
+        if pd.notna(row['target_topic']):
+            tgt_label = f"{tgt_w[:7]}_{get_topic_label(lda_models[tgt_w], int(row['target_topic']))}"
+            if tgt_label not in node_set:
+                nodes.append({'name': tgt_label})
+                node_set.add(tgt_label)
+        else:
+            tgt_label = None
+
+        if src_label and tgt_label:
+            links.append({
+                'source': src_label,
+                'target': tgt_label,
+                'value': row['similarity'] * 100,
+                'lineStyle': {'color': color_map.get(row['event'], '#EE6666')}
+            })
+
+    # 生成图表
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    sankey = (
+        Sankey(init_opts=opts.InitOpts(width="1800px", height="1000px"))
+        .add(
+            series_name="",
+            nodes=nodes,
+            links=links,
+            linestyle_opt=opts.LineStyleOpts(opacity=0.5, curve=0.5),
+            label_opts=opts.LabelOpts(position="right", font_size=9),
+            node_gap=12,
+        )
+        .set_global_opts(
+            title_opts=opts.TitleOpts(title="技能演化桑基图 (2016-2024)"),
+            tooltip_opts=opts.TooltipOpts(trigger="item"),
+        )
+    )
+
+    output_file = f"{OUTPUT_DIR}/skill_evolution_sankey.html"
+    sankey.render(output_file)
+
+    print(f"桑基图已生成: {output_file}")
+    print(f"  节点数: {len(nodes)}")
+    print(f"  连接数: {len(links)}")
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}
+\end{codefile}
+
+%==============================================================================
+\section{Phase 4: 面板数据构建}
+%==============================================================================
+
+\subsection{Task 4.1: 统一主题ID映射}
+
+\textbf{目标}：追踪survival链，为跨窗口的"同一技能"赋予统一ID。
+
+\subsection{Task 4.2: 构建面板数据}
+
+\textbf{输出}：\texttt{outputs/panel\_data.csv}
+
+\textbf{字段}：
+\begin{itemize}
+    \item \texttt{job\_id}: 职位唯一标识
+    \item \texttt{window}: 时间窗口
+    \item \texttt{unified\_topic\_id}: 统一技能ID
+    \item \texttt{topic\_proportion}: 该技能在职位中的比例
+    \item \texttt{job\_title}, \texttt{city}, \texttt{salary}, \texttt{education}...
+\end{itemize}
+
+%==============================================================================
+\section{执行检查清单}
+%==============================================================================
+
+\begin{table}[h]
+\centering
+\caption{执行检查清单}
+\begin{tabular}{clll}
+\toprule
+\textbf{序号} & \textbf{任务} & \textbf{输出文件} & \textbf{状态} \\
+\midrule
+1.1 & ESCO词典转换（中英双语） & \texttt{data/esco/jieba\_dict/esco\_jieba\_dict.txt} & $\checkmark$ \\
+1.2 & 数据按窗口分割 & \texttt{data/processed/windows/window\_*.csv} & $\square$ \\
+1.3 & 分词+短语识别 & \texttt{data/processed/tokenized/window\_*\_corpus.pkl} & $\square$ \\
+\midrule
+2.1 & 构建词典 & \texttt{output/lda/dictionaries/window\_*.dict} & $\square$ \\
+2.2 & LDA训练 & \texttt{output/lda/models/window\_*\_lda.model} & $\square$ \\
+\midrule
+3.1 & Word2Vec+向量化 & \texttt{output/lda/word2vec.model} & $\square$ \\
+3.2 & 主题对齐 & \texttt{output/lda/evolution\_events.csv} & $\square$ \\
+3.3 & 桑基图 & \texttt{output/lda/skill\_evolution\_sankey.html} & $\square$ \\
+\midrule
+4.1 & 统一ID映射 & \texttt{output/lda/unified\_topic\_mapping.pkl} & $\square$ \\
+4.2 & 面板数据 & \texttt{output/lda/panel\_data.csv} & $\square$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{综合化程度量化指标}
+%==============================================================================
+
+\begin{note}
+\textbf{核心假设验证}：如果AI导致岗位技能综合化，Phase III的平均主题熵应显著高于Phase I。
+\end{note}
+
+\subsection{指标1：主题熵 (Topic Entropy)}
+
+衡量单个主题内关键词的分布集中度：
+\[
+H_{topic} = -\sum_{w \in \text{top-}N} P(w|topic) \cdot \log P(w|topic)
+\]
+
+\begin{itemize}
+    \item 熵\textbf{低} $\rightarrow$ 关键词集中 $\rightarrow$ 专业化主题（如"Java, SQL, 数据库"）
+    \item 熵\textbf{高} $\rightarrow$ 关键词分散 $\rightarrow$ 综合化主题（如"Python, 沟通, 项目管理"）
+\end{itemize}
+
+\subsection{指标2：跨域共现率 (Cross-Domain Co-occurrence)}
+
+利用ESCO技能分类体系，计算每个主题覆盖的技能大类数量：
+\[
+\text{CDR}_{topic} = \frac{|\{\text{ESCO大类} : \exists w \in \text{top-}20, w \in \text{该大类}\}|}{|\text{ESCO大类总数}|}
+\]
+
+\textbf{示例}：
+\begin{itemize}
+    \item 2016年"程序员"主题：全是"Java, SQL" $\rightarrow$ CDR = 1/N（仅计算机类）
+    \item 2024年"程序员"主题：含"Python, 项目管理, 沟通" $\rightarrow$ CDR = 3/N（计算机+管理+软技能）
+\end{itemize}
+
+\subsection{指标3：岗位综合化指数 (Job Hybridization Index)}
+
+基于文档-主题分布$\theta$计算：
+\[
+\text{JHI}_{doc} = -\sum_{k} \theta_k \cdot \log \theta_k \quad \text{（文档主题熵）}
+\]
+
+或使用有效主题数：
+\[
+\text{ETN}_{doc} = \sum_{k} \mathbf{1}[\theta_k > 0.05]
+\]
+
+%==============================================================================
+\section{验证标准}
+%==============================================================================
+
+\begin{table}[h]
+\centering
+\caption{质量验证标准}
+\begin{tabular}{lll}
+\toprule
+\textbf{指标} & \textbf{目标值} & \textbf{说明} \\
+\midrule
+Topic Coherence (Cv) & $\geq 0.40$ & 每个窗口的主题一致性 \\
+Survival比例 & 40\%--60\% & 跨窗口存活的主题占比 \\
+演化合理性 & 人工审核 & 技术迭代符合行业认知 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{综合化趋势验证（核心假设）}
+\begin{tabular}{lll}
+\toprule
+\textbf{指标} & \textbf{预期趋势} & \textbf{统计检验} \\
+\midrule
+平均主题熵 & Phase III $>$ Phase I & Mann-Whitney U \\
+平均CDR & Phase III $>$ Phase I & 双样本t检验 \\
+平均JHI/ETN & Phase III $>$ Phase I & 配对检验 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==============================================================================
+\section{方法论风险点及应对}
+%==============================================================================
+
+\subsection{风险点1：主题数量(K)的选择}
+
+\begin{warning}
+\textbf{问题}：如果Phase III岗位真的变复杂了，是否需要更多Topic才能覆盖？K在不同窗口不一致会导致熵不可比。
+\end{warning}
+
+\textbf{应对策略}：\textbf{固定K作为控制变量}（推荐K=60）。
+
+\textbf{论文表述}：``在控制了主题粒度（K=60）不变的情况下，我们依然观察到每个主题内部的熵显著增加。''——这比动态K更有说服力。
+
+\textbf{补充验证}：可用Coherence Score在每个窗口单独评估K=40/50/60/70/80，确认K=60不是极端选择。
+
+\subsection{风险点2：软技能泛滥的混淆}
+
+\begin{warning}
+\textbf{问题}：``综合化''会不会只是因为Phase III出现了更多通用废话（如``沟通能力''、``团队合作''）？这些软技能词增多导致熵增加，而非真正的硬技能跨界。
+\end{warning}
+
+\textbf{应对策略}：\textbf{硬/软技能分离分析}
+
+\begin{enumerate}
+    \item \textbf{ESCO分类标注}：利用ESCO技能分类体系，将词汇标注为：
+    \begin{itemize}
+        \item 硬技能（Technical Skills）：编程语言、工具、框架
+        \item 软技能（Soft Skills）：沟通、团队、领导力
+        \item 领域知识（Domain Knowledge）：行业术语
+    \end{itemize}
+
+    \item \textbf{分层熵计算}：
+    \[
+    H_{hard} = -\sum_{w \in \text{硬技能}} P(w|topic) \log P(w|topic)
+    \]
+    分别计算硬技能熵和软技能熵。
+
+    \item \textbf{关键检验}：证明\textbf{硬技能熵}在Phase III显著高于Phase I。
+
+    \textbf{论文表述}：``排除软技能后，我们发现硬技能的跨领域共现率（例如：程序员开始要求产品设计能力）在Phase III显著提升。''
+\end{enumerate}
+
+\textbf{代码实现要点}：
+\begin{itemize}
+    \item 在ESCO词典转换时保留技能分类标签
+    \item 计算熵时按类别分组
+    \item 输出分层结果：总体熵、硬技能熵、软技能熵
+\end{itemize}
+
+%==============================================================================
+\section{目录结构}
+%==============================================================================
+
+\begin{verbatim}
+/Users/yu/code/code2601/TY/
++-- config/
+|   +-- paths.py                      # 集中路径配置
++-- data/
+|   +-- processed/
+|   |   +-- cleaned/all_in_one1.csv   # 清洗后数据
+|   |   +-- extracted/all_in_one2.csv # 提取后数据
+|   |   +-- deduped/all_in_one2_dedup.csv # 去重后数据
+|   |   +-- windows/                  # [输出] 分窗口数据
+|   |   +-- tokenized/                # [输出] 分词后语料
+|   +-- esco/
+|       +-- original/                 # ESCO原始数据
+|       +-- chinese/                  # 汉化后ESCO
+|       +-- jieba_dict/               # jieba词典+元数据
++-- src/
+|   +-- cleaning/                     # 数据清洗脚本
+|   +-- lda/                          # LDA建模脚本
+|   +-- esco/                         # ESCO相关脚本
++-- output/
+|   +-- lda/                          # LDA输出
+|   +-- esco/                         # ESCO输出
+|   +-- reports/                      # 报告
++-- cache/translation/                # 翻译缓存
++-- docs/plan.tex                     # 本文档
++-- scripts/                          # 运行脚本
+\end{verbatim}
+
+%==============================================================================
+\section{文献参考}
+%==============================================================================
+
+\begin{enumerate}
+    \item Chun, S. A., et al. (2013). TopicFlow: Visualizing topic alignment of Twitter data over time. \textit{ASONAM}.
+    \item El-Assady, M., et al. (2023). TopicRefiner: Coherence-guided steerable LDA. \textit{IEEE TVCG}.
+    \item Han, X. (2020). Evolution of research topics in LIS between 1996 and 2019. \textit{Scientometrics}.
+    \item Alabdulkareem, A., et al. (2018). Unpacking the polarization of workplace skills. \textit{Science Advances}.
+\end{enumerate}
+
+\end{document}

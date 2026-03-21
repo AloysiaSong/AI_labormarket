@@ -1,0 +1,947 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{verbatim}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue
+}
+
+\title{\textbf{LDA方法论复盘笔记}\\[0.5em]
+\large 从模型选择到推断细节的逐步拆解}
+\author{宋宇}
+\date{2026年3月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+
+% ===================================================================
+\section{这份文档是干什么的}
+% ===================================================================
+
+这份笔记不是用来发表的，是给自己复盘用的。目的是把LDA建模过程中的每一个操作细节都拆开来看——做了什么、为什么这么做、有没有替代方案、有什么隐患。
+
+核心链路很简单：
+
+\begin{verbatim}
+processed_corpus.jsonl  →  tomotopy LDA训练  →  folding-in推断
+→  每条岗位的topic分布  →  计算entropy/HHI  →  按年聚合做趋势分析
+\end{verbatim}
+
+但每个箭头里面都有细节值得展开。
+
+
+% ===================================================================
+\section{为什么选LDA}
+\label{sec:why-lda}
+% ===================================================================
+
+\subsection{我们到底需要什么}
+
+研究问题是"岗位综合化趋势"——就是看一个岗位的职责描述是越来越专一，还是越来越杂。要量化这个东西，我们需要：
+
+\begin{enumerate}
+\item 把每条招聘广告的文本映射到一个\textbf{技能维度}上的概率分布 $\boldsymbol{\theta} = (p_1, p_2, \dots, p_K)$；
+\item $\theta$ 必须是概率分布——$p_k \geq 0$，$\sum p_k = 1$——这样才能算Shannon熵；
+\item 不同年份的文档必须在\textbf{同一个主题空间}下比较，否则2016年的"主题3"和2024年的"主题3"含义不同，熵值就没法跨年比较。
+\end{enumerate}
+
+这三条要求直接限制了方法选择。
+
+\subsection{排除的方法}
+
+\textbf{BERTopic}：BERTopic本质上是先用BERT/sentence-transformers做embedding，然后HDBSCAN聚类。它的输出是硬聚类——每篇文档分到一个类别。虽然也可以用c-TF-IDF得到主题词，但它不直接给你 $\theta$ 分布。也有人用 soft clustering 的变体，但那不是 BERTopic 的标准用法，而且 soft distribution 的质量取决于 HDBSCAN 的聚类结果，不如 LDA 的概率建模自然。
+
+\textbf{NMF (Non-negative Matrix Factorization)}：NMF确实能给出文档-主题矩阵，看起来类似 $\theta$。但NMF是纯线性代数分解，没有概率解释——矩阵值不天然满足归一化到1的约束。虽然可以事后归一化，但这缺少贝叶斯先验的正则化效果，主题分布容易退化（比如大量近零值加一两个极大值）。
+
+\textbf{Word2Vec / Doc2Vec}：这些给出的是连续向量空间的embedding，没有"主题"这个离散结构。算倒是可以算余弦相似度，但没法直接算熵。要用这类方法做综合化度量，就得额外定义什么叫"技能维度"，比如先定义一个技能词典再去匹配——这引入了太多人工假设。
+
+\textbf{SBERT + 技能匹配}：其实我们在另一条线（ESCO技能匹配）里试过这个路子。它的优势是语义更精确，但依赖外部技能分类体系（ESCO），而且中文岗位描述到英文技能标签的对齐质量不好控制。作为稳健性检验可以，但不适合作主分析方法。
+
+\textbf{STM (Structural Topic Model)}：STM（Roberts et al., 2014）是LDA的一个扩展，最大的卖点是允许文档级协变量（比如年份、城市、行业）直接进入模型，影响主题比例（topic prevalence）甚至主题内容（topic content）。对我们的研究来说，这听起来很诱人——把"年份"作为协变量，STM可以直接告诉你"主题X的占比随时间怎么变"，不需要我们先算 $\theta$ 再手动按年聚合。
+
+但我们没用STM，原因有三个：
+
+\begin{itemize}
+\item \textbf{规模问题}：STM的主流实现是R的 \texttt{stm} 包，在几万到几十万篇文档上表现不错，但面对我们这种2600万条的规模基本跑不动。Python端的实现也不够成熟，没有经过大规模验证。
+\item \textbf{灵活性问题}：STM把协变量效应"焊死"在模型里——你在训练时就得决定哪些变量影响topic prevalence、哪些影响topic content。但我们的分析需求是多维度的：年份趋势、城市异质性、行业异质性、应届/非应届对比……如果全部塞进STM作为协变量，模型会非常复杂；如果只放一部分，其他维度的分析就没法做了。相比之下，LDA给出的是"裸"的 $\theta$ 分布，后续想怎么切分聚合都行——按年份、按城市、按行业，甚至交叉分组，全部都是后处理的事。这种灵活性对面板数据分析更友好。
+\item \textbf{可解释性问题}：STM的主题比例同时受文档内容和协变量影响，这意味着同一篇文档在"2016年模型"和"2024年模型"里可能得到不同的 $\theta$（因为年份协变量不同）。这对我们来说是个麻烦——我们要的是"同一个主题空间下文档本身的技能组合"，不希望年份标签反过来影响推断结果。LDA的推断只依赖文档内容，年份只在后续分析中作为分组变量出现，因果链路更清晰。
+\end{itemize}
+
+总之，STM更适合"中等规模语料 + 已知关键协变量 + 研究协变量如何影响主题"的场景（比如政治学里分析议员发言随党派/时期的变化）。我们的场景是"超大规模语料 + 多维度灵活分析 + 主题分布本身就是最终变量"，LDA反而更合适。
+
+\subsection{LDA为什么合适}
+
+LDA（Latent Dirichlet Allocation）是一个生成式概率模型。它假设：
+
+\begin{enumerate}
+\item 每篇文档（就是JD）是多个主题的混合——混合比例 $\theta_d \sim \text{Dir}(\alpha)$；
+\item 每个主题是词表上的概率分布——$\phi_k \sim \text{Dir}(\eta)$；
+\item 文档中的每个词先选主题（按 $\theta_d$），再从该主题的词分布中采样。
+\end{enumerate}
+
+这个生成过程天然给出了我们需要的 $\theta_d$——它本来就是概率分布，不需要事后归一化。而且Dirichlet先验提供了平滑效果，避免极端分布。
+
+\subsection{反思：LDA的局限性}
+
+选LDA的缺陷：
+
+\begin{itemize}
+\item \textbf{词袋假设}：LDA不管词序，把文档当成词的无序集合。一个说"先做数据分析再写报告"和"先写报告再做数据分析"的岗位，在LDA眼里完全一样。对于岗位描述来说这个问题不大——JD本身就是半结构化的条目列表，词序信息不多。但如果我们分析的是叙事性文本（比如新闻报道），这个假设就有问题。（但我们不是（乐
+\item \textbf{主题数K需要预设}：LDA不会自动决定该有多少个主题，这个要人来选（见第\ref{sec:k-selection}节）。选小了主题太粗，选大了主题太碎。虽然有BIC/coherence等指标辅助，但最终还是一个judgment call。
+\item \textbf{主题不一定对应"技能"}：LDA发现的是统计上的词共现模式，不是语义上的"技能类别"。比如一个主题可能是"责任心+团队合作+沟通"——这在人类看来是三个不同的软技能，但因为它们总是一起出现在JD里，LDA会把它们归为一个主题。这意味着我们测量的"综合化"其实是"涉及的统计词共现模式的多样性"，不是"涉及的人类定义的技能类别的多样性"。
+\item \textbf{对短文本不太友好}：LDA在长文档上效果更好，因为更多的词提供了更多的统计信号。我们的数据里，中位token数是37，P95是117——大部分文档不算很短，但也不是长文本。对于token数很少的文档（$<5$个token），我们直接丢弃了。
+\end{itemize}
+
+这些局限性我们需要记住。不过对于当前的研究问题来说，LDA的优势（天然概率分布、统一主题空间、成熟的理论框架）足够压过这些劣势。
+
+
+% ===================================================================
+\section{方法论变迁：从窗口LDA到全局LDA}
+\label{sec:evolution}
+% ===================================================================
+
+\subsection{旧方案：gensim + 窗口独立训练}
+
+最早的方案是参考文献里常见的做法：把数据按时间切成窗口（2016-2017, 2018-2019, ...），每个窗口独立训练一个LDA模型（gensim, K=60）。具体配置是：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+参数 & 值 \\
+\midrule
+工具 & gensim LdaMulticore \\
+主题数 & 60 \\
+passes & 15 \\
+workers & 4 \\
+alpha & symmetric \\
+eta & auto \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+这个方案训出来的5个模型平均 coherence (C$_V$) 是0.6134，看起来质量不错。但有一个根本问题：
+
+\textbf{跨窗口不可比}。Window A的Topic 3和Window B的Topic 3不是同一个东西——它们在各自的语料上独立训练，语义可能完全不同。要做年度趋势分析，就得先做主题对齐（alignment），把相邻窗口的主题一一对应起来。这个对齐过程本身就引入了额外的不确定性——用匈牙利算法做最优匹配、设定相似度阈值区分Survival/Split/Merge——每一步都有参数选择的问题。
+
+\subsection{为什么换成全局LDA}
+
+全局LDA的思路很简单：在全部年份的数据上训练一个模型，所有年份共享同一个主题空间。这样2016年文档的 $\theta$ 和2024年文档的 $\theta$ 天然可比，不需要对齐。
+
+代价是一个假设：\textbf{主题空间在2016-2025年间不变}。也就是说，2016年存在的50个技能维度和2024年是同一套。这个假设显然不完全成立——10年间肯定有新技能出现（比如"大模型应用"）、旧技能消退（比如某些传统工艺）。但对于我们的目的（衡量分布的分散程度），只要主要的技能维度大致稳定，这个近似就是可接受的。
+
+另外，全局模型训练数据量更大（全量2600万 vs 窗口内几百万），理论上主题质量更好。
+
+\subsection{为什么换tomotopy}
+
+gensim的LDA实现用的是Variational Bayes（变分推断），tomotopy用的是CGS（Collapsed Gibbs Sampling，坍缩吉布斯采样）。两者在理论上是等价的近似方法——都在逼近真实的后验分布——但实际表现有差异：
+
+\begin{itemize}
+\item tomotopy的C++后端比gensim的Cython快很多，尤其在大语料上。全量训练26M文档，gensim可能要跑一天以上，tomotopy快得多。
+\item tomotopy的内存管理更好——它支持流式加载文档，不需要把整个corpus放内存里。
+\item CGS在小到中规模语料上通常比VB收敛更好（Asuncion et al., 2009），但在超大语料上两者差异不大。
+\end{itemize}
+
+\textbf{反思}：换引擎意味着旧方案的gensim结果和新方案的tomotopy结果没法直接对比。所以旧的窗口LDA结果我们保留作为参考（alignment方法的那条线），但不和全局LDA的entropy数字直接比较。两套方法回答的是不同层面的问题：全局LDA看程度（entropy趋势），alignment看结构（主题的存活/分裂/融合）。
+
+
+% ===================================================================
+\section{训练细节}
+\label{sec:training}
+% ===================================================================
+
+\subsection{输入数据}
+
+训练输入是 \texttt{processed\_corpus.jsonl}，每行一条文档：
+
+\begin{verbatim}
+{"id": "20160000001", "year": "2016", "tokens": ["软件", "开发", ...],
+ "is_fresh_grad": 0, "data_source": "综合"}
+\end{verbatim}
+
+总共 \textbf{26,792,380} 条。tokens已经经过分词、停用词过滤、bigram合并等NLP预处理（详见 \texttt{data\_preprocessing\_report.tex}）。
+
+\subsection{采样策略}
+
+我们实际训练用的不是全量数据，而是\textbf{10\%随机采样}（\texttt{step2\_train\_fast.py}）：
+
+\begin{verbatim}
+SAMPLE_RATE = 0.1
+RANDOM_SEED = 42
+\end{verbatim}
+
+流式读取JSONL文件，每行以10\%概率保留。最终训练集大约 \textbf{268万条}（26.8M $\times$ 10\%）。
+
+\textbf{为什么不用全量？} 全量26M条训练LDA需要大量内存和时间。tomotopy需要把所有文档加载到内存中构建内部数据结构，26M条可能需要50GB+内存。10\%采样后大约5GB内存，在普通笔记本上就能跑。
+
+\textbf{10\%够不够？} （跑的时候可以改成30\%试试）对LDA来说，268万条文档已经是非常大的语料了。主题-词分布 $\phi$ 在几十万条文档后就基本稳定了，更多的数据主要是让低频词的统计量更准确。对于我们关心的主要主题结构（前50个主题），268万条绰绰有余。
+
+\textbf{反思}：采样的风险在于年份分布可能不均匀。原始数据中2022年有230万条而2019年几乎没有数据，10\%采样后这个不均匀会被保留。但这对训练来说其实不是问题——LDA不关心文档的年份标签，它只看词共现模式。年份不均匀意味着2022年前后的词汇模式在模型中权重更大，但这恰恰反映了这些年份在劳动力市场上的实际比重。
+
+\subsection{模型参数}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{参数} & \textbf{值} & \textbf{说明} \\
+\midrule
+K (num\_topics) & 50 & 主题数（见第\ref{sec:k-selection}节） \\
+min\_cf & 10 & 语料频率$<$10的词直接丢弃 \\
+rm\_top & 15 & 丢弃频率最高的15个词 \\
+iterations & 1000 & Gibbs采样迭代次数 \\
+seed & 42 & 随机种子（fast版本有，full版本没有） \\
+workers & 0 & 自动检测CPU核数 \\
+alpha & 默认 & tomotopy默认用对称先验，后续可auto \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{K = 50}
+（K=30的时候其实效果最好，这次会试一试的）
+这个在第\ref{sec:k-selection}节详细讨论。
+\subsubsection{min\_cf = 10}
+
+语料中出现次数少于10次的词会被丢弃。268万条文档里只出现10次的词，平均每26.8万条文档才出现1次——这种词的统计信号太弱了，留着会引入噪声。
+
+\textbf{反思}：NLP预处理阶段已经做了一轮词频过滤（jieba分词 + 停用词 + 单字过滤），这里是第二轮过滤。两轮过滤的标准不同：NLP阶段基于词性和词长，这里基于语料频率。两者是互补的。
+
+\subsubsection{rm\_top = 15}
+（可以考虑不移除，先检查再移除）
+tomotopy在建好词典之后，会把全局频率最高的15个词移除。这些词通常是：（1）侥幸逃过停用词表的高频功能词，或者（2）在所有主题中都高频出现的"通用描述词"（比如"技术"、"管理"、"开发"这种几乎每个JD都有的词）。留着这些词会让所有主题看起来都很像，降低主题区分度。
+
+\textbf{反思}：15这个数字是拍脑袋定的。更谨慎的做法是先看看频率最高的50个词列表，人工判断哪些应该去掉。但在实际操作中，15是tomotopy社区的常见默认值，从结果来看主题质量（coherence 0.597）达到了可接受水平。
+
+\subsubsection{iterations = 1000}
+
+CGS迭代1000轮。tomotopy的LDA.train()方法每次迭代对所有文档中的所有词做一轮Gibbs采样——重新采样每个词的主题分配。
+
+\textbf{收敛判断}：训练过程中监控 \texttt{ll\_per\_word}（每词对数似然）。从代码来看，每轮都打印这个值。一般来说500轮左右就基本收敛了，1000轮是留足余量。
+
+\textbf{反思}：我们没有做严格的收敛诊断（比如绘制 ll\_per\_word 随迭代的曲线、计算最后100轮的变化率）。未来如果需要更严格的报告，应该加上这个。
+
+\subsection{训练输出}
+
+训练完成后保存为 \texttt{output/global\_lda\_fast.bin}（tomotopy的二进制格式）。这个文件包含：
+
+\begin{itemize}
+\item 主题-词分布矩阵 $\Phi$：$K \times V$ 矩阵，$\Phi_{k,v} = P(\text{word}_v | \text{topic}_k)$
+\item alpha向量：$K$ 维向量，文档-主题先验
+\item 词典：词$\to$索引的映射
+\item 训练元数据：迭代次数、词频统计等
+\end{itemize}
+
+
+% ===================================================================
+\section{推断方法：解析法 Folding-in}
+\label{sec:inference}
+% ===================================================================
+
+\subsection{问题：怎么用训好的模型给新文档算 $\theta$}
+
+训练阶段只用了10\%的数据。但我们需要给\textbf{全部26,792,380条}文档计算主题分布 $\theta$——因为后续的年度趋势分析要用到全量数据。
+
+标准做法是把新文档"推断"(infer)到已训练好的主题空间中。tomotopy本身提供 \texttt{infer()} 方法，内部跑几轮Gibbs采样。但对26M条文档，哪怕每条只跑100轮Gibbs，也慢得不可接受。
+
+\subsection{解析法的公式}
+
+我们用的是\textbf{解析法folding-in}——不做Gibbs采样，直接用贝叶斯公式算后验。对于一篇文档 $d$，其中的词为 $w_1, w_2, \dots, w_n$（经过词表过滤后），主题 $k$ 的后验概率为：
+
+\begin{equation}
+P(z = k \mid d) \propto \alpha_k \cdot \prod_{i=1}^{n} P(w_i \mid z = k)
+\label{eq:standard-foldin}
+\end{equation}
+
+其中：
+\begin{itemize}
+\item $\alpha_k$ 是主题 $k$ 的Dirichlet先验参数
+\item $P(w_i | z=k) = \Phi_{k, w_i}$ 是训练好的主题-词分布
+\end{itemize}
+
+取对数后变成加法：
+
+\begin{equation}
+\log P(z=k \mid d) = \log \alpha_k + \sum_{i=1}^{n} \log P(w_i \mid z=k) + \text{const}
+\end{equation}
+
+\subsection{几何均值修正}
+
+\textbf{但我们的代码不是直接用上面的公式}。看 \texttt{step3\_infer.py} 的关键行：
+
+\begin{verbatim}
+log_scores = _log_tw[:, indices].mean(axis=1) + _log_alpha
+\end{verbatim}
+
+注意这里用的是 \texttt{.mean()} 不是 \texttt{.sum()}。也就是说，实际公式是：
+
+\begin{equation}
+\log P(z=k \mid d) = \log \alpha_k + \frac{1}{n}\sum_{i=1}^{n} \log P(w_i \mid z=k)
+\label{eq:geomean-foldin}
+\end{equation}
+
+这等价于：
+
+\begin{equation}
+P(z=k \mid d) \propto \alpha_k \cdot \left[\prod_{i=1}^{n} P(w_i \mid z=k)\right]^{1/n}
+\end{equation}
+
+也就是用词似然的\textbf{几何均值}而不是乘积。
+
+\subsubsection{为什么要这么改？}
+
+标准公式(\ref{eq:standard-foldin})有一个文档长度偏差问题：长文档（比如 $n=200$ 个词）的对数似然之和远大于短文档（$n=10$ 个词），导致长文档的主题分布更极端——概率倾向于集中在一两个最匹配的主题上，而短文档的分布更均匀。
+
+这不是我们想要的。我们关心的是"这个岗位涉及哪些技能领域"，不管它的JD写了100字还是1000字，答案应该大致一样。几何均值通过除以 $n$ 来归一化文档长度效应，使得长短文档的 $\theta$ 分布可比。
+
+\subsubsection{反思：这个修正有多合理？}
+
+说实话，这是一个\textbf{启发式}(heuristic)修正，不是从贝叶斯框架里严格推导出来的。标准LDA推断（无论是variational还是Gibbs）不需要这个修正，因为它们在迭代过程中隐式地处理了文档长度——比如Gibbs采样中，长文档有更多词被分配到各个主题，短文档的分配更不确定，但最终的归一化主题分布不会系统性地偏向集中或分散。
+
+几何均值修正的理论依据可以追溯到 Zhai \& Lafferty (2004) 的"geometric mean smoothing"思想，但在LDA folding-in中的使用并不是主流做法。我们采用它的主要原因是实用性——在预实验中发现标准公式给出的entropy对文档长度高度敏感，加了几何均值后sensitivity明显降低。
+
+\textbf{潜在风险}：如果几何均值过度平滑了主题分布（使所有文档看起来都很"均匀"），可能会人为抬高entropy baseline。但从结果来看，entropy的年际差异（从0.40到0.44）和文档间方差都足够大，说明这个修正没有把信号抹掉。
+
+\subsection{log-sum-exp归一化}
+
+得到 $\log P(z=k|d)$（未归一化）后，需要归一化成概率分布。代码做法：
+
+\begin{verbatim}
+log_scores -= log_scores.max()    # 减最大值，防止exp溢出
+probs = np.exp(log_scores)        # 转回概率空间
+probs /= probs.sum()              # 归一化
+\end{verbatim}
+
+这是标准的 log-sum-exp trick——先减掉最大值再exp，防止数值上溢。数学上完全等价于直接softmax，只是数值更稳定。
+
+\subsection{多核并行实现}
+
+26M条文档逐条推断，即使每条只是矩阵运算（没有迭代），也需要一定时间。代码用了Python multiprocessing：
+
+\begin{itemize}
+\item \textbf{进程数}：$\min(8, \text{cpu\_count})$
+\item \textbf{启动方式}：\texttt{spawn}（不是\texttt{fork}）——因为tomotopy的C++对象和numpy在fork模式下可能有线程安全问题
+\item \textbf{数据传递}：每个chunk大小 \texttt{CHUNK\_SIZE = 10000} 条原始JSON行
+\item \textbf{worker初始化}：每个worker进程独立加载模型文件，提取 $K \times V$ 的 $\log\Phi$ 矩阵和 $\log\alpha$ 向量，然后释放模型对象（节省$\sim$420MB内存/worker）
+\end{itemize}
+
+\textbf{为什么每个worker都要重新加载模型？} 因为tomotopy的模型对象不能pickle序列化（不能通过multiprocessing的管道传给子进程）。所以每个worker自己读文件、自己提取矩阵，这样在推断阶段只需要两个numpy数组（$\log\Phi$ 和 $\log\alpha$），不再依赖tomotopy对象。
+
+\textbf{反思}：这个并行方案能正常工作，但不是最高效的。更好的做法可能是用numpy的向量化一次处理一个大batch——把10000条文档的词索引打包成稀疏矩阵，然后做矩阵乘法。但当前方案已经够快（26M条大约30分钟跑完），没有必要过度优化。
+
+\subsection{推断输出}
+
+输出文件 \texttt{final\_results\_sample.csv}，每行一条文档：
+
+\begin{verbatim}
+id, year, entropy_score, hhi_score, dominant_topic_id, dominant_topic_prob
+20160000001, 2016, 0.423456, 0.412345, 7, 0.234567
+\end{verbatim}
+
+其中 entropy 和 HHI 是从 $\theta$ 计算的指标（下节详述），dominant\_topic是概率最大的主题编号。
+
+
+% ===================================================================
+\section{核心指标：归一化Shannon熵}
+\label{sec:entropy}
+% ===================================================================
+
+\subsection{公式}
+
+对每条文档的主题分布 $\boldsymbol{\theta} = (p_1, \dots, p_K)$，计算归一化Shannon熵：
+
+\begin{equation}
+H(d) = -\frac{\sum_{k=1}^{K} p_k \ln p_k}{\ln K}
+\end{equation}
+
+代码实现：
+\begin{verbatim}
+entropy = float(-np.sum(probs * np.log(probs + EPS)) / log_k)
+\end{verbatim}
+
+其中 \texttt{EPS = 1e-12} 防止 $\log(0)$，\texttt{log\_k = math.log(K) = math.log(50) $\approx$ 3.912}。
+
+\subsection{为什么要除以 $\ln K$}
+
+不归一化的Shannon熵范围是 $[0, \ln K]$——最大值取决于主题数 $K$。如果我们比较不同 $K$ 值下的entropy（比如K=20 vs K=80），不归一化的话根本没法比。除以 $\ln K$ 之后范围统一到 $[0, 1]$：
+
+\begin{itemize}
+\item $H = 0$：所有概率集中在一个主题——极端专业化
+\item $H = 1$：均匀分布在所有 $K$ 个主题——极端综合化
+\end{itemize}
+
+这也是为什么K sensitivity分析中可以在同一张图上叠加不同K的entropy曲线——归一化后它们在同一个量纲上。
+
+\subsection{HHI作为补充}
+
+代码同时计算了 HHI (Herfindahl-Hirschman Index)：
+
+\begin{equation}
+\text{HHI}(d) = \sum_{k=1}^{K} p_k^2
+\end{equation}
+
+\begin{itemize}
+\item $\text{HHI} = 1$：极端集中（专业化）
+\item $\text{HHI} = 1/K = 0.02$：完全均匀（综合化）
+\item HHI越低越综合——方向和entropy相反
+\end{itemize}
+
+\textbf{为什么同时看两个指标？} 因为它们对分布不同部分的敏感性不一样。Entropy对小概率的尾部更敏感（$-p\log p$ 在 $p$ 很小时变化快），HHI对大概率的头部更敏感（$p^2$ 在 $p$ 大时主导）。如果两个指标的年度趋势一致（entropy上升 + HHI下降），结论更稳健。
+
+\subsection{反思：entropy是不是最好的综合化度量？}
+
+entropy衡量的是分布的"均匀程度"。但"均匀"不一定等于"综合化"。举个极端例子：如果一个岗位在50个主题中，每个主题都有2\%的概率——entropy = 1，最"综合"了。但这可能不是因为这个岗位真的涉及50种技能，而是因为LDA对这条JD的推断很不确定（文档太短、词汇太泛），什么主题都沾一点。
+
+换句话说，entropy同时反映了两个东西：（1）岗位真实涉及的技能多样性，和（2）LDA推断的不确定性。我们希望捕捉的是(1)，但(2)是噪声。
+
+缓解办法：
+\begin{itemize}
+\item 已经做了MIN\_TOKENS过滤（至少5个有效词才推断），排除了最短的文档
+\item 几何均值修正减轻了文档长度的影响
+\item 后续可以在回归中控制token\_count作为协变量
+\end{itemize}
+
+但根本上说，entropy和推断不确定性的纠缠是LDA方法的固有局限。
+
+\subsection{更根本的问题：entropy只测广度，测不了深度}
+
+这个问题比上面讨论的"推断不确定性"更严重，值得单独拎出来说。
+
+我们的研究叙事是"AI让岗位变得更综合"——entropy上升，所以岗位涉及的技能领域变多了。但AI对岗位技能需求的影响远不止"加新技能"这一条路径。至少有三种可能：
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{2.5cm}p{5.5cm}p{4.5cm}}
+\toprule
+\textbf{影响路径} & \textbf{含义} & \textbf{entropy的反应} \\
+\midrule
+A. 技能增加 & 原来只要3种技能，现在要5种——AI创造了新的技能需求 & 上升（能捕捉到）\\
+B. 技能替换 & 原来要数据录入，现在换成AI工具使用——一换一 & 可能不变（看不出来）\\
+C. 深度降低 & 原来要精通Python，现在会用AI写代码就行——技能门槛下降 & 不变（完全看不出来）\\
+D. 技能删除 & 原来要5种技能，AI接管了2种，现在只要3种 & 下降（能捕捉到，但方向相反）\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{路径C是最大的盲区}。LDA的主题是词共现模式——"Python"、"开发"、"代码"这些词不管出现在"精通Python后端开发"还是"会用AI辅助写基本脚本"的JD里，都会被归到同一个主题。entropy衡量的是"你涉及多少个不同的主题维度"（广度），不是"每个维度要求多高的水平"（深度）。如果AI让某项技能从"精通"降级为"了解即可"，但这项技能在JD里仍然被提到，LDA的$\theta$分布几乎不会变，entropy也不会变。
+
+\textbf{路径B同样棘手}。假设一个岗位原来60\%是"传统数据处理"、40\%是"报告撰写"，AI介入后变成60\%"AI工具操作"、40\%"报告撰写"。如果"传统数据处理"和"AI工具操作"在LDA中是不同的主题，$\theta$分布确实变了——但entropy可能差不多（还是两个主题各占一定比例）。综合化程度没变，只是内容换了。我们的entropy会说"没变化"，这其实是正确的（综合化程度确实没变），但我们会漏掉"岗位内容已经发生质变"这个信息。
+
+\textbf{路径D是entropy能捕捉的，但方向和我们的叙事相反}。如果AI真的完全替代了某些技能（JD里不再提这些内容），$\theta$会更集中，entropy会下降。但我们的结果显示entropy在上升——这至少说明，如果存在"AI删除技能"的效应，它被"AI增加新技能需求"的效应给压过了。
+
+\subsubsection{这对我们的结论意味着什么？}
+
+entropy上升 $\Rightarrow$ \textbf{净效应}是技能广度在增加。但这不排除同时发生的深度降低和技能替换。更准确的表述应该是：
+
+\begin{quote}
+"岗位描述中涉及的\textbf{技能领域数量}（广度）在增加，但我们的指标无法区分这种增加来自于\textbf{新增技能需求}还是\textbf{每项技能的要求深度降低后腾出空间来容纳更多浅层技能}。"
+\end{quote}
+
+后一种可能性——"一英里宽、一英寸深"——其实是一个很有意义的劳动经济学假说：AI让每项技能的入门门槛降低，于是雇主可以要求员工涉猎更多领域，但每个领域不需要太深入。这个假说和"综合化"并不矛盾，但含义不同。
+
+\subsubsection{现有设计中能部分回应的证据}
+
+虽然entropy本身分不清广度增加和深度降低，但我们手头有一些间接证据可以辅助判断：
+
+\begin{enumerate}
+\item \textbf{token\_count趋势}：如果岗位要求在"变浅变宽"，JD的长度不一定会变——可能更短（删掉了深度描述），也可能更长（增加了更多浅层条目）。看token\_count的年度趋势可以提供线索。
+\item \textbf{dominant\_topic\_prob趋势}：如果主导主题的概率在下降（$\theta$的最大分量变小了），说明不是简单地"原来的主技能被降级"，而是确实有更多主题参与了进来。
+\item \textbf{Alignment方法的主题演化}：窗口LDA + Alignment可以直接观察主题的分裂/融合/消亡——如果某些"传统技能"主题在消失、"AI相关"主题在新生，这提供了内容层面的证据。
+\item \textbf{特定主题的年度比例}：50个主题中，哪些在增长、哪些在萎缩？如果增长的主题确实对应"新技能"（而不只是原有技能的重新分配），综合化的叙事就更可信。
+\end{enumerate}
+
+\textbf{底线}：entropy是一个有效但不完整的度量。它能可靠地测量技能广度的变化，但无法区分广度增加的来源（新增 vs 浅化 vs 替换）。在论文中应该诚实地说明这一局限，并用上述辅助证据来增强论证。
+
+\subsection{文献中的改进方向}
+
+翻了一圈文献，发现这个"只测广度"的问题其实是领域共识——Deming \& Kahn (2018, JoLE) 用二元指标（提到/没提到），Hershbein \& Kahn (2018, AER) 也是，比我们的entropy还粗。但有几条可行的改进路径。
+
+\subsubsection{路径一：熟练度修饰词提取（最可行）}
+
+中文JD里天然存在一套有序的熟练度标记：
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{修饰词} & \textbf{含义} & \textbf{等级} \\
+\midrule
+精通 & 专家/精深掌握 & 3 \\
+熟练 & 熟练操作 & 2.5 \\
+熟悉 & 有经验、了解运作 & 2 \\
+了解 & 知道、基本概念 & 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+这些修饰词在JD里出现频率很高（"熟悉Python"、"精通Java"、"了解机器学习"），用正则或依存句法分析可以提取（修饰词, 技能词）的配对，然后给每条JD算一个\textbf{平均熟练度分数}作为"深度"指标。
+
+这样就有了两个独立维度：
+\begin{itemize}
+\item \textbf{广度}（Breadth） = 归一化Shannon熵（现有指标）
+\item \textbf{深度}（Depth） = 平均熟练度修饰词等级
+\end{itemize}
+
+如果结果显示entropy在上升（广度增加）的同时熟练度在下降（深度降低），就支持"一英里宽、一英寸深"假说。如果两者都在上升，就是真正的全面提升。这两种情况的政策含义完全不同。
+
+\textbf{理论支撑}：Lazear (2009, JPE) 的skill-weights框架把产出建模为 $y = \lambda \cdot x_A + (1-\lambda) \cdot x_B$，其中 $\lambda$ 是技能权重（对应我们的$\theta$分布/广度），$x$ 是技能水平（对应深度）。他的框架天然把广度和深度分开了——企业的特殊性不来自独特技能，而来自独特的技能组合权重。我们的entropy测的正是这个 $\lambda$ 的分散程度，但缺了 $x$ 那一维。
+
+\textbf{可行性}：极高。正则表达式匹配就行，26M条文档扫一遍几十分钟。不需要改动LDA管线。
+
+\subsubsection{路径二：Extensive / Intensive Margin 分解}
+
+Atalay et al. (2020, AEJ: Applied) 分析1950-2000年的报纸招聘广告，把岗位内容变化分解为：
+\begin{itemize}
+\item \textbf{Extensive margin}：新岗位的出现/旧岗位的消失
+\item \textbf{Intensive margin}：同一岗位内部的内容变化
+\end{itemize}
+
+更近的工作是 Tong, Wu \& Evans (2025, Nature Communications)，他们分析了1.67亿条美国JD，用技能embedding空间测量技能变化的"距离"，区分了新技能的加入（extensive）和已有技能权重的调整（intensive）。
+
+我们可以做类似的分解：对于 $\theta$ 分布从 $t$ 到 $t+1$ 的变化——
+\begin{itemize}
+\item \textbf{Extensive margin}：原来 $\theta_k \approx 0$ 变成 $\theta_k > 0$ 的主题数（新增的技能领域）
+\item \textbf{Intensive margin}：已有主题之间权重的重新分配
+\end{itemize}
+
+如果entropy上升主要来自extensive margin（新主题加入），说明确实是"技能增加"；如果主要来自intensive margin（原有主题变得更均匀），可能更多是"重新分配"。
+
+\textbf{可行性}：高。用现有的 $\theta$ 数据就能做，不需要重新训练。按职业类别分组后，比较同一类别在不同年份的 $\theta$ 均值即可。
+
+\subsubsection{路径三：等效主题数 $\exp(H)$}
+
+这个改动最小但有好处。生态学多样性文献（Jost, 2006）建议不直接用Shannon熵 $H$，而用"等效物种数" $\exp(H)$——直观含义是"如果所有主题均匀分布，需要多少个主题才能达到同样的熵值"。
+
+对我们来说：$\exp(H \cdot \ln K)$ 就是等效主题数。如果 $H = 0.43$（K=50），等效主题数 $= 50^{0.43} \approx 7.2$——意思是"这个岗位的技能分布相当于均匀涉及7.2个主题"。这比"entropy = 0.43"更直观，也更容易向非技术读者解释。
+
+\textbf{可行性}：极高。纯数学变换，不需要改任何管线。
+
+\subsubsection{路径四：主题演化网络}
+（不想用这个...）
+
+Alabdulkareem et al. (2018, Science Advances) 构建了技能互补性网络——如果两个技能经常在同一岗位中共现，就连一条边。他们发现技能网络分成两大社区（社会认知 vs 感官运动），岗位综合化的一种更有意义的定义是"跨越不同社区的技能组合"。
+
+我们可以从LDA的 $\theta$ 分布构建类似的主题共现网络，然后看一个岗位是否跨越了多个社区——这比raw entropy更有信息量，因为涉及"通常不一起出现的技能组合"比"涉及通常一起出现的相关技能"更能说明真正的综合化。
+
+\textbf{可行性}：中等。需要构建网络 + 社区发现，工作量比上面几个大。
+
+\subsubsection{实施计划：路径1+2+3联合}
+
+路径1（深度）、路径2（margin分解）、路径3（等效主题数）三条路径互补，组合起来可以把entropy的单维度叙事扩展成一个三层解释框架：
+
+\begin{quote}
+\textbf{第一层}（路径3）：展示:entropy = 0.43 不直观，转成"等效涉及7.2个技能领域"更好懂。\\
+\textbf{第二层}（路径2）：拆解:这7.2个领域的增长是"新领域加入"（extensive）还是"已有领域更均匀"（intensive）？\\
+\textbf{第三层}（路径1）：追问:不管广度怎么变，每个领域的要求深度是升了还是降了？
+\end{quote}
+
+三层拼在一起，应该可以完整回答"AI到底怎么改变了岗位技能结构"。下面是具体实施方案。
+
+\paragraph{路径3实施：等效主题数 $N_{\text{eff}}$}
+
+纯数学变换，不需要新脚本：
+
+\begin{equation}
+N_{\text{eff}}(d) = K^{H(d)} = 50^{H(d)}
+\end{equation}
+
+其中 $H(d)$ 是归一化entropy。对应关系：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ccc}
+\toprule
+$H$ & $N_{\text{eff}}$ & 直观含义 \\
+\midrule
+0.30 & $50^{0.30} = 3.4$ & 主要涉及3-4个技能领域 \\
+0.40 & $50^{0.40} = 5.5$ & 涉及5-6个技能领域 \\
+0.43 & $50^{0.43} = 6.3$ & 涉及6-7个技能领域 \\
+0.50 & $50^{0.50} = 7.1$ & 涉及7个技能领域 \\
+1.00 & $50^{1.00} = 50$ & 均匀覆盖所有领域 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+在已有的 \texttt{final\_results\_sample\_sorted.csv} 上直接加一列 \texttt{n\_eff = 50 ** entropy\_score} 即可。年度趋势表从"entropy从0.393升到0.434"变成"等效技能领域数从5.5升到6.3"——后者的经济含义清晰得多。
+
+\paragraph{路径2实施：Extensive / Intensive Margin 分解}
+
+对同一职业类别（或整体），比较 $t$ 期和 $t+1$ 期的平均 $\bar{\theta}$ 向量。定义一个阈值 $\epsilon$（比如0.01），将主题分为三类：
+
+\begin{itemize}
+\item \textbf{Active topics at $t$}：$\bar{\theta}^{(t)}_k > \epsilon$
+\item \textbf{Active topics at $t+1$}：$\bar{\theta}^{(t+1)}_k > \epsilon$
+\item 两期都active的交集记为 $\mathcal{A}$
+\end{itemize}
+
+然后分解 $\Delta H = H^{(t+1)} - H^{(t)}$ 为两部分：
+
+\begin{enumerate}
+\item \textbf{Extensive margin}：新增active主题数 $|\mathcal{A}^{(t+1)} \setminus \mathcal{A}^{(t)}|$，以及消失的主题数 $|\mathcal{A}^{(t)} \setminus \mathcal{A}^{(t+1)}|$。如果净增加 $> 0$，说明确实有新技能领域进入。
+\item \textbf{Intensive margin}：只看交集 $\mathcal{A}$ 上的主题，计算它们的entropy变化。如果交集内entropy也在升，说明已有技能领域之间的分配在变均匀。
+\end{enumerate}
+
+具体操作：
+
+\begin{verbatim}
+输入：final_results_sample_sorted.csv（已有）
+步骤：
+  1. 按year分组，计算每年的 mean(theta_k) 向量
+     （需要完整的50维theta，目前CSV里只有entropy/hhi/dominant_topic，
+      所以要么从step3_infer重新输出完整theta，
+      要么用create_sorted_results重跑时存下来）
+  2. 对相邻年份，计算active topic集合的交集/差集
+  3. 分解entropy变化为extensive + intensive
+输出：
+  yearly_margin_decomposition.csv
+    列：year, delta_entropy, extensive_new, extensive_lost,
+        intensive_delta, n_active_topics
+\end{verbatim}
+
+\textbf{注意}：目前的输出文件里只存了entropy/hhi/dominant\_topic，没有存完整的50维 $\theta$ 向量——因为26M $\times$ 50 = 13亿个浮点数，CSV会非常大。两个解决办法：
+
+\begin{itemize}
+\item 方案A：在推断脚本中直接按年聚合，只输出年度 $\bar{\theta}$ 向量（50维 $\times$ 10年 = 500个数字，很小）
+\item 方案B：按职业类别 $\times$ 年份分组聚合（如果有职业类别字段的话），输出更细的分解
+\end{itemize}
+
+方案A足够回答"整体趋势的来源"，方案B需要和异质性分析配合。先做A。
+
+\paragraph{路径1实施：熟练度修饰词提取}
+
+从原始JD文本（\texttt{cleaned\_requirements} 字段）中提取熟练度修饰词。
+
+\textbf{修饰词词典}（有序等级）：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{clc}
+\toprule
+\textbf{等级} & \textbf{关键词} & \textbf{数值} \\
+\midrule
+精通级 & 精通、深入掌握、专精 & 3.0 \\
+熟练级 & 熟练、熟练掌握、熟练使用、熟练运用 & 2.5 \\
+熟悉级 & 熟悉、掌握、具备...能力 & 2.0 \\
+了解级 & 了解、知道、接触过、有...概念 & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{注意}：“熟悉”和“掌握”在NLP预处理阶段被当成停用词去掉了（见 \texttt{nlp\_pipeline.py} 的停用词表）。所以不能从 \texttt{processed\_corpus.jsonl} 的tokens里提取，必须回到原始的 \texttt{cleaned\_requirements} 字段。
+
+\textbf{具体操作}：
+
+\begin{verbatim}
+输入：data/processed/windows/window_*.csv
+      （cleaned_requirements字段，原始清洗后文本）
+步骤：
+  1. 逐行读取 cleaned_requirements
+  2. 用正则匹配修饰词：
+     re.findall(r'(精通|熟练掌握|熟练使用|熟练运用|熟练|
+                   深入掌握|专精|熟悉|掌握|了解|知道)',
+                text)
+  3. 统计每条JD中各等级的修饰词出现次数
+  4. 计算：
+     - proficiency_mean = 加权平均等级
+     - proficiency_max  = 最高等级
+     - proficiency_count = 修饰词总出现次数
+     - high_ratio = 精通级+熟练级 / 总修饰词数
+  5. 分配与create_sorted_results.py一致的ID
+输出：
+  data/Heterogeneity/proficiency_by_id.csv
+    列：id, year, proficiency_mean, proficiency_max,
+        proficiency_count, high_ratio
+  data/Heterogeneity/yearly_proficiency_stats.csv
+    列：year, n, mean_proficiency, mean_high_ratio
+\end{verbatim}
+
+然后和entropy数据做merge，就能画出双轴图：横轴时间，左轴entropy/等效主题数（广度），右轴平均熟练度（深度）。两条线的走势对比直接回答"是变宽了还是变浅了还是都有"。
+
+\paragraph{三条路径的联合叙事}
+
+最终在论文中可以这样组织结果：
+
+\begin{enumerate}
+\item \textbf{主趋势}（路径3）："2016-2024年间，岗位的等效技能领域数从5.5个上升到6.3个——平均每个岗位多涵盖了0.8个技能领域。"
+\item \textbf{来源分解}（路径2）："这一增长中，XX\%来自新技能领域的进入（extensive margin），YY\%来自已有技能领域之间分配更均匀（intensive margin）。"
+\item \textbf{深度检验}（路径1）："与此同时，岗位要求的平均熟练度从Z.Z下降/上升到Z.Z，表明综合化[伴随/不伴随]技能深度的变化。"
+\end{enumerate}
+
+如果结果是"广度增加 + 深度不变"——这是最clean的story：AI确实让岗位需要更多种技能，但每种技能的要求水平没变。
+
+如果是"广度增加 + 深度下降"——支持"一英里宽一英寸深"假说，政策含义不同：教育培训应该侧重通识能力而非单项深耕。
+
+如果是"广度增加 + 深度上升"——最强的综合化证据：不仅涉及更多领域，每个领域的要求还更高了。
+
+路径4（主题共现网络）留作审稿人要求时的储备。
+
+
+% ===================================================================
+\section{K值选择}
+\label{sec:k-selection}
+% ===================================================================
+
+\subsection{网格搜索设计}
+
+在定稿K=50之前，我们对 K $\in$ \{20, 30, 40, 50, 60, 70, 80, 100\} 分别训练了模型（\texttt{k\_selection.py}）。所有模型用同一份10\%采样语料训练，参数相同（min\_cf=10, rm\_top=15, iterations=1000），只有K不同。
+
+K=50的模型直接从已有的 \texttt{global\_lda\_fast.bin} 复制过来，不重新训练——保证和主分析用的是同一个模型。
+
+\subsection{评估指标}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+K & LL/word & C$_V$ & U$_\text{Mass}$ & 训练时间(min) \\
+\midrule
+20 & $-$9.7374 & 0.5751 & $-$4.2714 & 10.6 \\
+30 & $-$9.6687 & 0.5904 & $-$4.3741 & 13.3 \\
+40 & $-$9.6172 & 0.5882 & $-$4.5706 & 17.4 \\
+\textbf{50} & $-$\textbf{9.5759} & \textbf{0.5970} & $-$\textbf{4.6162} & \textbf{0.6} \\
+60 & $-$9.5715 & 0.5798 & $-$4.8760 & 18.1 \\
+70 & $-$9.5513 & 0.5879 & $-$4.8127 & 24.4 \\
+80 & $-$9.5268 & 0.5927 & $-$4.8435 & 27.2 \\
+100 & $-$9.5258 & 0.5574 & $-$5.5118 & 33.3 \\
+\bottomrule
+\end{tabular}
+\caption{不同K值的模型评估指标}
+\label{tab:k-metrics}
+\end{table}
+
+三个指标各自说的话不完全一样：
+
+\begin{itemize}
+\item \textbf{LL/word}（每词对数似然）：越高越好（越接近0）。随K增大单调递增——更多主题总能更好地拟合数据。这个指标对K选择帮助不大，因为它永远鼓励选更大的K。
+\item \textbf{C$_V$ coherence}：衡量每个主题的top词在外部语料中的语义一致性。K=50时最高（0.597），之后在K=60处下降，K=80回升，K=100又下降。整体呈现倒U型，峰值在50附近。
+\item \textbf{U$_\text{Mass}$ coherence}：基于语料内部的词对共现。值越接近0越好（都是负数）。随K增大单调变差，说明主题越多，每个主题内部的词共现一致性越差。这也是预期内的——主题越细，就越容易把不太相关的词凑在一起。
+\end{itemize}
+
+\subsection{为什么选K=50}
+
+K=50在C$_V$上取得最高分（0.597），同时LL/word和U$_\text{Mass}$都处于合理范围。更重要的是，从K=50到K=60，C$_V$下降了0.017（从0.597到0.580），这是8个K值中最大的单步下降。这说明50是一个"主题质量拐点"——再往上加主题，质量开始明显劣化。
+
+\textbf{反思}：老实说，C$_V$在不同K值之间的差异不大。K=50是0.597，K=30是0.590，K=80是0.593——差距在2\%以内。如果只看coherence，说K=30或K=80也"差不多好"是站得住脚的。K=50的选择有一定主观性。
+
+但K sensitivity分析给了我们额外的信心：不管选哪个K，entropy的年度趋势都是一致的（见第\ref{sec:robustness}节）。所以K的具体值对主要结论（综合化趋势上升）影响不大。K=50是一个在质量和粒度之间的折中——50个主题足够细，能区分"软件开发"和"数据分析"这种级别的差异，但又不至于太碎以至于每个主题只有几个高频词。
+
+\subsection{coherence指标的计算细节}
+
+代码中的coherence计算调用了gensim的 \texttt{CoherenceModel}。具体做法：
+
+\begin{enumerate}
+\item 从tomotopy模型中提取每个主题的top-20词
+\item 用10万条文档（从训练集中再次采样）构建gensim词典
+\item 用gensim的 \texttt{CoherenceModel} 计算 C$_V$ 和 U$_\text{Mass}$
+\end{enumerate}
+
+\textbf{C$_V$ coherence 的原理}：对每个主题的top-$m$词，计算所有词对的归一化PMI（Pointwise Mutual Information）：
+
+\begin{equation}
+C_V = \frac{2}{m(m-1)} \sum_{i<j} \text{NPMI}(w_i, w_j)
+\end{equation}
+
+其中 $\text{NPMI}(w_i, w_j) = \frac{\log \frac{P(w_i, w_j)}{P(w_i)P(w_j)}}{-\log P(w_i, w_j)}$。C$_V$ 越高，说明每个主题的关键词在真实文本中确实经常一起出现——主题语义越连贯。
+
+\textbf{U$_\text{Mass}$ coherence}：类似但不做归一化，且使用文档级共现（两个词是否在同一文档中出现），而不是滑窗共现。
+
+\textbf{反思}：coherence只衡量主题的词层面质量，不衡量文档-主题分配的质量。一个模型可能有coherent的主题，但给某些文档分配了不合理的主题分布。不过在实际应用中，主题词质量和分配质量高度相关——如果主题本身语义清晰，分配通常也不会太离谱。
+
+
+% ===================================================================
+\section{稳健性检验}
+\label{sec:robustness}
+% ===================================================================
+
+\subsection{检验一：K值敏感性分析}
+
+\subsubsection{做了什么}
+
+对K $\in$ \{20, 30, 40, 50, 60, 70, 80, 100\} 的每个模型，用同样的解析法folding-in推断全量26M条文档，计算每条的归一化entropy，然后按年聚合取均值。
+
+\subsubsection{结果}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+年份 & K=20 & K=30 & K=40 & K=50 & K=60 & K=70 & K=80 & K=100 \\
+\midrule
+2016 & 0.322 & 0.365 & 0.370 & 0.393 & 0.421 & 0.447 & 0.450 & 0.497 \\
+2017 & 0.326 & 0.368 & 0.373 & 0.395 & 0.428 & 0.453 & 0.455 & 0.504 \\
+2018 & 0.326 & 0.366 & 0.372 & 0.393 & 0.426 & 0.451 & 0.452 & 0.500 \\
+2021 & 0.347 & 0.389 & 0.397 & 0.421 & 0.456 & 0.482 & 0.486 & 0.537 \\
+2022 & 0.356 & 0.393 & 0.402 & 0.426 & 0.462 & 0.486 & 0.489 & 0.539 \\
+2023 & 0.357 & 0.395 & 0.404 & 0.428 & 0.463 & 0.488 & 0.490 & 0.540 \\
+2024 & 0.367 & 0.401 & 0.407 & 0.434 & 0.473 & 0.493 & 0.498 & 0.551 \\
+\bottomrule
+\end{tabular}
+\caption{不同K值下的年度平均归一化entropy（排除2019/2020/2025）}
+\label{tab:k-sensitivity}
+\end{table}
+
+几个观察：
+
+\begin{enumerate}
+\item \textbf{绝对值随K增大而上升}：K=20时entropy在0.32左右，K=100时在0.50左右。这是正常的——主题越多，分布越有空间分散。但因为已经归一化了（除以$\ln K$），这个差异反映的是模型结构差异，不是量纲差异。
+\item \textbf{所有K值的年度趋势方向一致}：无论K取什么值，从2016到2024年entropy都在上升。这是最关键的发现——说明"综合化趋势上升"不是K=50这个特定选择造成的。
+\item \textbf{2018→2021跳变在所有K值中都存在}：这是entropy增长最大的一段（因为2019/2020数据缺失，实际上是2018到2021的三年变化），在所有K值中都很明显。
+\end{enumerate}
+
+\subsubsection{反思}
+
+K sensitivity分析是我们最强的稳健性证据——它直接回答了"如果主题数选错了，结论还成立吗？"答案是成立的。
+
+但要注意一个问题：所有K值的模型都是在同一份10\%采样语料上训练的，都用同一种推断方法（几何均值folding-in）。所以这个检验只能说"K的选择不影响结论"，不能说"方法论的其他选择也不影响结论"。换一个完全不同的模型（比如BERTopic + soft clustering），结果可能不同。
+
+\subsection{检验二：词汇多样性熵（Word Entropy）}
+
+\subsubsection{做了什么}
+
+这是一个\textbf{完全不依赖LDA}的替代指标。对每条文档，直接在词频分布上算Shannon熵：
+
+\begin{equation}
+H_{\text{word}}(d) = -\frac{\sum_{w} p(w) \ln p(w)}{\ln V_d}
+\end{equation}
+
+其中 $p(w) = \text{count}(w) / \text{total\_words}$，$V_d$ 是文档中不重复的词类型数。归一化到$[0,1]$后，衡量的是"这条JD用了多丰富多样的词汇"。
+
+\subsubsection{结果}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrc}
+\toprule
+年份 & 文档数 & 平均词汇熵 \\
+\midrule
+2016 & 487,053 & 0.9973 \\
+2017 & 872,174 & 0.9974 \\
+2018 & 418,534 & 0.9972 \\
+2021 & 1,236,730 & 0.9966 \\
+2022 & 2,323,799 & 0.9961 \\
+2023 & 1,243,166 & 0.9961 \\
+2024 & 1,173,246 & 0.9962 \\
+\bottomrule
+\end{tabular}
+\caption{年度平均词汇多样性熵}
+\label{tab:word-entropy}
+\end{table}
+
+\subsubsection{解读和反思}
+
+词汇熵在所有年份都非常接近1（0.996--0.997），几乎没有年际变化。这跟LDA entropy的趋势（从0.40上升到0.44）完全不一样。
+
+这是不是说LDA的结论不可靠？\textbf{不是}。两个指标测量的东西根本不同：
+
+\begin{itemize}
+\item \textbf{词汇熵}测量的是"这条JD的用词有多丰富"——在词的层面上。几乎所有JD都用了很多不同的词（因为JD本身就是描述性文本，很少重复同一个词），所以词汇熵接近1，年际几乎没有变化。
+\item \textbf{LDA entropy}测量的是"这条JD涉及的潜在技能领域有多分散"——在主题的层面上。一个JD可以用很丰富的词汇，但如果这些词都指向同一个技能领域（比如都是编程相关的词），LDA entropy还是会很低。
+\end{itemize}
+
+打个比方：词汇熵相当于"这个人的词汇量有多大"，LDA entropy相当于"这个人聊天涉及多少个不同话题"。一个人可以词汇量很大但只聊编程，也可以词汇量不大但什么话题都聊一点。
+
+\textbf{所以词汇熵作为"稳健性检验"其实不太合适}——它不是LDA entropy的替代指标，而是一个不同维度的度量。它能说明的是：词汇层面的多样性在各年份之间基本稳定，这意味着LDA entropy的年际变化不是因为文本变长了或用词变丰富了导致的，而是因为词汇在主题维度上的分布确实发生了变化。从这个角度说，词汇熵提供了间接支持。
+
+\textbf{更诚实的说法}：词汇熵不能验证也不能否定LDA entropy的趋势。它们测量不同层面的东西。真正的稳健性检验应该是用另一种能输出技能分布的方法（比如SBERT + ESCO匹配）来算entropy，看趋势是否一致。这个我们在别的线上做了（SBERT fingerprint），但暂时不在这份笔记的范围内。
+
+
+% ===================================================================
+\section{从推断到最终分析数据集}
+\label{sec:final-dataset}
+% ===================================================================
+
+\subsection{create\_sorted\_results.py}
+
+推断阶段（step3\_infer.py）的输出是 \texttt{final\_results\_sample.csv}，其中文档ID是从JSONL文件中读取的。但后续的异质性分析需要把entropy分数和原始CSV中的结构化字段（年份、城市、行业等）关联起来。
+
+\texttt{create\_sorted\_results.py} 做的事情是：
+
+\begin{enumerate}
+\item 按字母序读取 \texttt{window\_*.csv} 文件（与原始数据清洗时的顺序一致）
+\item 对每条记录重新做分词 + bigram合并 + LDA推断
+\item 分配确定性ID：\texttt{year $\times$ 10,000,000 + year\_seq}
+\item 输出带有ID和所有LDA指标的CSV
+\end{enumerate}
+
+\textbf{为什么要重新推断？} 因为 \texttt{step3\_infer.py} 读的是 \texttt{processed\_corpus.jsonl}，里面的文档ID在NLP pipeline中分配，可能跟window文件的行序不一致。\texttt{create\_sorted\_results.py} 直接从window文件出发，保证ID分配逻辑和其他分析脚本（如 \texttt{compute\_word\_entropy.py}）完全一致，方便后续用ID做merge。
+
+\textbf{反思}：这意味着我们的LDA推断实际上做了两遍——一遍在step3（从JSONL），一遍在create\_sorted\_results（从window CSV）。两遍用的是同一个模型和同一套推断公式，但分词路径不同（step3直接用JSONL里已经处理好的tokens，create\_sorted\_results重新分词）。理论上结果应该一致，但如果NLP pipeline和create\_sorted\_results的分词/bigram逻辑有微妙差异，结果可能不完全相同。这是一个潜在的一致性问题，但在实践中影响极小。
+
+\subsection{最终数据结构}
+
+后续分析用的核心文件是 \texttt{final\_results\_sample\_sorted.csv}：
+
+\begin{verbatim}
+id, year, entropy_score, hhi_score, dominant_topic_id,
+    dominant_topic_prob, token_count
+\end{verbatim}
+
+通过 ID 可以跟 \texttt{word\_entropy\_by\_id.csv} 和原始window文件中的结构化字段（城市、行业、应届标记等）做merge，构建完整的面板数据集。
+
+
+% ===================================================================
+\section{遗留问题和未来方向}
+\label{sec:todo}
+% ===================================================================
+
+\begin{enumerate}
+\item \textbf{收敛诊断}：应该保存训练过程中的 ll\_per\_word 曲线，确认1000轮确实收敛了。
+\item \textbf{全量训练 vs 采样训练}：目前用的是10\%采样模型。如果有更强的计算资源，可以用全量26M训练一个模型，比较两者的主题结构差异。如果差异很小，就进一步确认了10\%采样的合理性。
+\item \textbf{几何均值 vs 标准folding-in的对比}：可以在一个小样本上同时跑两种推断，比较entropy分布的差异。如果差异主要体现在绝对水平而不是年际趋势上，那我们的主要结论不受影响。
+\item \textbf{更好的稳健性检验}：用SBERT+ESCO技能匹配方法独立计算一个"技能多样性指数"，和LDA entropy做相关性分析。
+\item \textbf{主题标注}：50个主题目前只有自动提取的top词，还没有人工标注的技能标签。做了标注之后可以更清楚地说"综合化意味着哪些技能领域之间的融合"。
+\item \textbf{seed的问题}：\texttt{step2\_train\_fast.py} 设了 \texttt{seed=42}，但 \texttt{step2\_train.py}（全量版）没设。如果未来要做可重复性检验，两个版本都应该设seed。
+\end{enumerate}
+
+
+% ===================================================================
+\section{参数速查表}
+\label{sec:cheatsheet}
+% ===================================================================
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3cm}p{2.5cm}p{7cm}}
+\toprule
+\textbf{参数} & \textbf{值} & \textbf{位置/说明} \\
+\midrule
+K & 50 & step2\_train*.py \\
+min\_cf & 10 & tomotopy构建词典时过滤 \\
+rm\_top & 15 & tomotopy构建词典后移除 \\
+iterations & 1000 & CGS迭代轮数 \\
+SAMPLE\_RATE & 0.1 & step2\_train\_fast.py \\
+RANDOM\_SEED & 42 & step2\_train\_fast.py, k\_selection.py \\
+MIN\_TOKENS & 5 & 推断时最少需要5个有效词 \\
+EPS & 1e-12 & log计算防止下溢 \\
+CHUNK\_SIZE & 10000 & step3\_infer.py 并行分块大小 \\
+num\_cores & $\min(8, \text{cpu})$ & step3\_infer.py 并行进程数 \\
+EXCL\_YEARS & \{2019, 2020, 2025\} & k\_sensitivity.py 排除的年份 \\
+COHERENCE\_TOP\_N & 20 & k\_selection.py 每主题取top-20词 \\
+\bottomrule
+\end{tabular}
+\caption{LDA管线核心参数速查}
+\end{table}
+
+
+\end{document}

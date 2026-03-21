@@ -1,0 +1,262 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+\title{\textbf{Task 2.1: 构建词典与语料库技术报告}}
+\date{2026年2月3日}
+
+\begin{document}
+
+\maketitle
+
+\section{任务概述}
+
+Task 2.1的目标是为每个时间窗口构建高质量的Gensim词典和BOW语料库，通过频率过滤去除噪声词和停用词，确保LDA模型训练在高质量词汇基础上进行。本任务采用三重过滤策略：最小文档频率、最大文档频率比例和词汇量上限。
+
+\section{词汇过滤策略}
+
+\subsection{过滤参数}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{参数} & \textbf{值} \\
+\midrule
+最小文档频率 (min\_df) & 100 \\
+最大文档频率比例 (max\_df) & 0.4 \\
+最大保留词汇量 (keep\_n) & 30,000 \\
+\bottomrule
+\end{tabular}
+\caption{词汇过滤参数配置}
+\end{table}
+
+\subsection{过滤原理}
+
+\begin{itemize}
+    \item \textbf{min\_df=100}：删除在少于100个文档中出现的罕见词
+    \item \textbf{max\_df=0.4}：删除在超过40\%文档中出现的通用词（停用词）
+    \item \textbf{keep\_n=30,000}：保留最频繁的30,000个词
+\end{itemize}
+
+\textcolor{blue}{\textbf{设计理念}}：平衡词汇质量与计算效率，避免噪声词影响主题学习，同时控制模型复杂度。
+
+\section{处理结果汇总}
+
+\subsection{各窗口统计}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{时间窗口} & \textbf{文档数} & \textbf{原始词汇} & \textbf{过滤后词汇} & \textbf{保留率} & \textbf{平均词数/文档} \\
+\midrule
+2016-2017 & 1,635,960 & 197,800 & 15,411 & 7.8\% & 17.1 \\
+2018-2019 & 496,041 & 112,525 & 7,907 & 7.0\% & 16.5 \\
+2020-2021 & 1,448,911 & 234,258 & 22,021 & 9.4\% & 27.3 \\
+2022-2023 & 4,188,301 & 383,201 & 30,000 & 7.8\% & 26.5 \\
+2024-2025 & 1,390,688 & 218,383 & 19,796 & 9.1\% & 28.3 \\
+\midrule
+\textbf{合计} & 9,160,136 & - & 95,135 & \textbf{8.3\%} & 23.8 \\
+\bottomrule
+\end{tabular}
+\caption{词典构建结果汇总}
+\end{table}
+
+\subsection{质量指标分析}
+
+\begin{itemize}
+    \item \textbf{平均保留率}：8.3\%（标准差0.8\%）
+    \item \textbf{词汇规模}：7,907 - 30,000词（取决于窗口大小）
+    \item \textbf{文档覆盖}：99.99\%文档非空（过滤后）
+    \item \textbf{平均文档长度}：16.5 - 28.3词/文档
+\end{itemize}
+
+\section{词汇分布分析}
+
+\subsection{高频词谱系（Top 30）}
+
+保留的高频词主要反映职业岗位的核心要求：
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llr}
+\toprule
+\textbf{排名} & \textbf{词汇} & \textbf{文档频率} \\
+\midrule
+1 & 管理 & 993,898 \\
+2 & 大专 & 941,186 \\
+3 & 熟练 & 762,498 \\
+4 & 责任心 & 714,843 \\
+5 & 本科 & 672,130 \\
+6 & 协调 & 663,987 \\
+7 & 行业 & 649,171 \\
+8 & 学习 & 543,669 \\
+9 & 销售 & 516,060 \\
+10 & 项目 & 445,019 \\
+\midrule
+21-30 & 客户, 抗压, 善于, 培训, 技术, 开发, 团队合作\_精神, 业务 & 263K-310K \\
+\bottomrule
+\end{tabular}
+\caption{保留高频词分布（前10名+21-30名）}
+\end{table}
+
+\textcolor{blue}{\textbf{洞察}}：高频词谱系反映了岗位招聘的核心维度：
+\begin{itemize}
+    \item 教育背景：大专、本科
+    \item 技能要求：熟练、学习、技术、开发
+    \item 个人素质：责任心、协调、抗压、善于
+    \item 业务领域：管理、销售、项目、客户、业务
+\end{itemize}
+
+\subsection{中频词示例}
+
+中频词代表专业领域术语：
+
+\begin{verbatim}
+服务性 (566), 商务部 (566), 清查 (566), 副校长 (565),
+搅拌 (565), ELISA (565), 元至 (565), 定岗_定编 (565),
+台面 (565), 一份_稳定_收入 (565), 离岗 (565), 电子仪器 (565),
+优秀学生_干部 (565), 可能_出现 (565), Android_SDK (565)
+\end{verbatim}
+
+\subsection{低频词示例}
+
+低频词反映特定行业或新兴领域：
+
+\begin{verbatim}
+过道 (132), CODE (132), 营建 (131), 有亲 (131),
+底新 (131), 房等 (131), 工效 (131), 投诉率 (131),
+二外 (131), 小吃街 (131), 广告网 (131), 榜单 (131),
+加工资 (131), 直供 (131), 假牙 (131), 废旧物资 (131),
+人好 (131), 单员 (131), life (131), 压裂 (131)
+\end{verbatim}
+
+\section{过滤效果评估}
+
+\subsection{噪声去除分析}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{过滤类型} & \textbf{2016-2017} & \textbf{2022-2023} & \textbf{效果} \\
+\midrule
+原始词汇 & 197,800 & 383,201 & - \\
+低频词移除 & 182,389 & 368,800 & 7.6\%-7.8\% \\
+高频词移除 & 15,411 & 30,000 & 7.8\%-7.8\% \\
+\midrule
+最终保留 & 15,411 & 30,000 & 7.8\% \\
+\bottomrule
+\end{tabular}
+\caption{词汇过滤效果对比}
+\end{table}
+
+\subsection{质量提升指标}
+
+\begin{itemize}
+    \item \textbf{词汇纯度}：移除通用停用词，提高主题区分度
+    \item \textbf{计算效率}：控制词汇量在30,000以内，降低LDA复杂度
+    \item \textbf{语义密度}：平均文档长度23.8词，信息密度适中
+    \item \textbf{覆盖完整性}：保留率8.3\%，涵盖主要职业术语
+\end{itemize}
+
+\section{语料库构建}
+
+\subsection{BOW格式转换}
+
+\begin{itemize}
+    \item \textbf{输入}：分词后的文档列表（每文档平均23.8词）
+    \item \textbf{输出}：Matrix Market格式(.mm) + 索引文件(.mm.index)
+    \item \textbf{存储效率}：稀疏矩阵格式，节省磁盘空间
+    \item \textbf{加载速度}：Gensim原生支持，快速加载到内存
+\end{itemize}
+
+\subsection{语料统计}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{时间窗口} & \textbf{总词数} & \textbf{非空文档} & \textbf{平均长度} \\
+\midrule
+2016-2017 & 28,037,426 & 1,635,910 & 17.1 \\
+2018-2019 & 8,205,478 & 495,998 & 16.5 \\
+2020-2021 & 39,543,838 & 1,448,895 & 27.3 \\
+2022-2023 & 111,000,468 & 4,188,267 & 26.5 \\
+2024-2025 & 39,366,060 & 1,390,576 & 28.3 \\
+\midrule
+\textbf{合计} & 226,153,270 & 9,159,646 & \textbf{23.8} \\
+\bottomrule
+\end{tabular}
+\caption{语料库统计信息}
+\end{table}
+
+\section{技术性能分析}
+
+\subsection{处理效率}
+
+\begin{itemize}
+    \item \textbf{构建时间}：< 5分钟/窗口（取决于文档数量）
+    \item \textbf{内存占用}：约2-8GB（取决于词汇量）
+    \item \textbf{磁盘空间}：词典文件~400KB-780KB，语料库~10-50MB
+\end{itemize}
+
+\subsection{数据质量保证}
+
+\begin{itemize}
+    \item \textbf{完整性检查}：99.99\%文档成功转换
+    \item \textbf{一致性验证}：词典与语料库词汇表匹配
+    \item \textbf{可重现性}：相同参数保证结果一致
+\end{itemize}
+
+\section{输出文件}
+
+\subsection{文件结构}
+
+\begin{itemize}
+    \item \texttt{window\_*\_dict}：Gensim词典文件（词汇表+频率统计）
+    \item \texttt{window\_*\_corpus.mm}：BOW语料库（Matrix Market格式）
+    \item \texttt{window\_*\_corpus.mm.index}：语料库索引文件
+    \item \texttt{dictionary\_stats.pkl}：构建统计数据
+\end{itemize}
+
+\subsection{文件大小}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{窗口} & \textbf{词典大小} & \textbf{语料库大小} & \textbf{索引大小} \\
+\midrule
+2016-2017 & 403KB & 22MB & 3.2MB \\
+2018-2019 & 207KB & 6.3MB & 0.8MB \\
+2020-2021 & 581KB & 31MB & 4.6MB \\
+2022-2023 & 780KB & 84MB & 12.6MB \\
+2024-2025 & 516KB & 28MB & 4.2MB \\
+\bottomrule
+\end{tabular}
+\caption{输出文件大小统计}
+\end{table}
+
+\section{结论}
+
+Task 2.1成功构建了高质量的词典和语料库，关键成果包括：
+
+\begin{itemize}
+    \item ✅ \textbf{有效过滤}：平均保留8.3\%高质量词汇，去除噪声和停用词
+    \item ✅ \textbf{语义丰富}：保留的核心词汇涵盖教育、技能、素质、业务四大维度
+    \item ✅ \textbf{计算优化}：控制词汇量在30,000以内，保证LDA训练效率
+    \item ✅ \textbf{数据完整}：99.99\%文档成功处理，总计2.26亿词元
+    \item ✅ \textbf{格式标准}：输出Gensim兼容格式，便于后续LDA训练
+\end{itemize}
+
+该词典构建为LDA模型提供了优质的词汇基础，确保主题学习的准确性和可解释性，为后续岗位综合化分析奠定了坚实的数据基础。
+
+\end{document}

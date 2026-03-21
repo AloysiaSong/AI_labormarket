@@ -1,0 +1,49 @@
+# Data files (too large for git)
+data/
+output/
+dataset/
+cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+*.so
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.xdv
+*.synctex.gz
+docs/out/
+
+# Binary docs (track .tex source, not compiled outputs)
+*.pdf
+*.docx
+*.xlsx
+~$*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment files
+.env
+*.env

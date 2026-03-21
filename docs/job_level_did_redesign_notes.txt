@@ -1,0 +1,228 @@
+岗位层 DID 重设计思路
+
+一、为什么要改
+
+原方案的问题有两层：
+
+1. 识别层级错位
+研究问题是“生成式 AI 是否改变了单条岗位广告的技能需求结构”，
+但主回归放在 industry x occupation x year 的 cell 层面。
+这样会把岗位内部变化和样本构成变化混在一起。
+
+2. 测量构念错位
+如果 LDA 主要从 JD 文本中抓到的是职业/行业主题，
+那么 topic entropy 更像“职业语汇混合度”，
+而不是“岗位技能需求综合化”。
+
+因此，重跑不能只调 K，必须同时修正：
+- measurement：让 outcome 更接近 skill/task construct
+- identification：让主回归回到岗位层
+
+
+二、修正后的主逻辑
+
+修正后的因果链条应为：
+
+职业层 AI 暴露度
+    ->
+同一职业内部岗位的技能/任务需求结构变化
+    ->
+岗位级 skill-topic comprehensiveness 指标变化
+
+主张不是：
+AI exposure -> occupation-coded text entropy
+
+而是：
+AI exposure -> job-level skill recombination
+
+
+三、主识别设计：岗位层 DID
+
+主回归单位：job posting
+
+基准方程：
+
+Y_jot = beta * (AIExpo_o x Post_t) + gamma_o + delta_t + X'_jot * theta + epsilon_jot
+
+其中：
+- j: job posting
+- o: occupation (ISCO-08 4-digit)
+- t: year
+- AIExpo_o: 职业层 AI 暴露度
+- Post_t: post-2022 指示变量
+
+建议固定效应：
+- occupation FE
+- year FE
+- platform FE
+
+稳健性规格可增加：
+- industry x year FE
+
+标准误：
+- cluster at occupation level
+
+
+四、岗位层主面板：最小必要字段
+
+1. 标识变量
+- job_id
+- year
+- isco08_4digit
+- industry_code
+- platform
+
+2. 处理变量
+- ai_exposure
+- post
+
+3. 岗位级主因变量（来自新 LDA）
+- skill_entropy
+- ent_effective
+- rao_q
+- hhi
+- gini
+- dominant_prob
+- n_sig_topics
+- tail_mass_ratio
+
+4. 文本与样本质量变量
+- has_skill_text
+- token_count
+- skill_token_count
+- word_entropy
+
+5. 可选当期控制变量
+- salary
+- edu_level
+- exp_years
+
+注意：
+salary / edu_level / exp_years 不应作为主规格必备控制，
+因为它们本身可能受到 AI 冲击影响，属于潜在 post-treatment controls。
+它们更适合放在 control-heavy robustness 中。
+
+
+五、measurement 修正
+
+核心原则：
+LDA 是 measurement tool，不是理论前提。
+不是“LDA 学到了什么就叫什么”，
+而是“先定义 skill/task text，再用 LDA 压缩其共现结构”。
+
+具体做法：
+
+1. 输入文本不再是泛化 JD 全文
+而是从 cleaned_requirements 中进一步抽取 skill/task 表达。
+
+2. 句级过滤
+按句号、分号、换行、编号切句。
+
+优先保留：
+- 含技能动词的句子
+- 含任务动词且同时带技术对象/工具/系统/方法信息的句子
+- ESCO 或技能词典命中的句子
+
+剔除：
+- 学历句
+- 年限经验句
+- 年龄外貌句
+- 福利薪资句
+- 招聘广告话术
+- 纯软性人格句（若无具体技能对象）
+
+3. 文档构造
+将保留句拼接后重新分词。
+若过滤后 token < 5，则记为 has_skill_text = 0。
+
+4. 主题训练
+在 skill/task 受限语料上重训 LDA。
+K 可比较 50 / 100 / 150 三版。
+
+
+六、为什么这样能回正“鬼打墙”
+
+原来的鬼打墙在于：
+- treatment 定义在 occupation 层
+- outcome 若也主要由 occupation-coded language 构成
+- 那就会变成“职业层冲击解释职业语汇变化”
+
+修正后：
+- treatment 仍在 occupation 层
+- outcome 的原材料改为岗位中的 skill/task text
+- DID 直接在岗位层估计
+
+于是识别变成标准的 cross-level design：
+occupation-level treatment acts on job-level outcomes
+
+只要新的主题比原来更接近 skill/task dimensions，
+beta 的解释就能回到：
+高 AI 暴露职业在 post 期的岗位，其技能需求更综合
+
+而不是：
+高 AI 暴露职业在 post 期的 JD 文本更混杂
+
+
+七、主规格与稳健性规格的顺序
+
+建议按以下顺序报告：
+
+1. 主规格
+Y ~ AIExpo x Post + occupation FE + year FE + platform FE
+
+2. 行业稳健性
+再加 industry x year FE
+
+3. 条件平行趋势
+加入 base_salary_o x f(t), base_edu_o x f(t), base_exp_o x f(t)
+
+4. 文本长度稳健性
+再控制 token_count
+
+5. 强控制规格
+再控制 skill_token_count，以及当期 salary / edu / exp
+
+6. Extensive margin
+以 has_skill_text 为因变量单独跑 DID
+
+
+八、cell-level 结果怎么处理
+
+cell-level 面板不要删除，但降格为补充：
+- 描述性趋势图
+- 聚合稳健性
+- 与旧结果可比
+- 异质性展示
+
+主识别不再依赖 cell-level mean outcome。
+
+
+九、实现上的提醒
+
+1. 岗位层回归规模在 2500 万行左右，
+常规 statsmodels 很可能不合适。
+应优先考虑：
+- pyfixest / fixest
+- 或其他适合超大样本高维固定效应的工具
+
+2. has_skill_text = 1 的样本选择要透明报告。
+主结果可在 intensive margin 上做，
+但必须同时报告 extensive margin。
+
+3. token_count 和 skill_token_count 不要默认放进主规格，
+否则可能把“AI 让岗位描述更细、更展开”的一部分真实效应控掉。
+
+
+十、一句话总结
+
+重跑后的真正修正不是“换一个 K 再跑一次”，
+而是：
+
+1. 在 measurement 上，把 outcome 改成岗位级 skill/task comprehensiveness
+2. 在 identification 上，把主 DID 放回岗位层
+3. 把 cell-level 结果降格为补充
+
+这样才能把论文从
+"AI exposure -> occupation-coded text entropy"
+拉回到
+"AI exposure -> job-level skill recombination"

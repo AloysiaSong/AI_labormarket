@@ -1,0 +1,504 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage[most]{tcolorbox}
+
+% ======================== 字体设置 ========================
+\usepackage{fontspec}
+\setmainfont{Times New Roman}[Scale=1.0]
+\usepackage{xeCJK}
+\setCJKmainfont{STSong}
+\setCJKsansfont{Heiti SC}
+\setCJKmonofont{STSong}
+
+% ======================== 颜色定义 (Navy monochrome) ========================
+\definecolor{navy}{HTML}{003591}
+\definecolor{dark}{HTML}{00102C}
+\definecolor{red}{HTML}{002566}
+\definecolor{orange}{HTML}{19499C}
+\definecolor{blue}{HTML}{335DA7}
+\definecolor{green}{HTML}{809AC8}
+\definecolor{gray}{HTML}{99AED3}
+\definecolor{lred}{HTML}{CCD7E9}
+\definecolor{lyellow}{HTML}{CCD7E9}
+\definecolor{lblue}{HTML}{E6EBF4}
+\definecolor{lgreen}{HTML}{E6EBF4}
+\definecolor{altrow}{HTML}{E6EBF4}
+\definecolor{accentred}{HTML}{C0392B}
+\definecolor{accentgreen}{HTML}{27AE60}
+\definecolor{accentorange}{HTML}{E67E22}
+
+% ======================== Box 定义 ========================
+
+\newtcolorbox{chapterbox}[1]{
+  enhanced, colback=lblue, colframe=dark,
+  fonttitle=\Large\bfseries, title={#1},
+  coltitle=white, colbacktitle=dark,
+  arc=3mm, boxrule=1.5pt,
+  top=4pt, bottom=4pt,
+  breakable
+}
+
+\newtcolorbox{defbox}[1]{
+  enhanced, colback=lblue, colframe=navy,
+  fonttitle=\bfseries, title={{\color{white}#1}},
+  coltitle=white, colbacktitle=navy,
+  arc=2mm, boxrule=0.8pt,
+  top=3pt, bottom=3pt,
+  attach boxed title to top left={yshift=-2mm, xshift=4mm},
+  boxed title style={arc=1.5mm, boxrule=0pt},
+  breakable
+}
+
+\newtcolorbox{exambox}[1][]{
+  enhanced, colback=lred, colframe=accentred!80,
+  fonttitle=\bfseries,
+  title={{\color{white}\fbox{!} 重点} #1},
+  coltitle=white, colbacktitle=accentred,
+  arc=2mm, boxrule=0.8pt,
+  top=3pt, bottom=3pt,
+  breakable
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=navy,
+  urlcolor=navy,
+  citecolor=navy
+}
+
+% ================================================================
+\begin{document}
+
+\begin{chapterbox}{DID 回归操作日志}
+记录一下从面板构建到跑出 DID 结果的整个过程。
+
+\medskip
+\textbf{研究问题}：AI 是否改变了岗位对技能综合性的要求？（rephrase：AI 是否让岗位要求变得更综合了）岗位要求的变化可能包括：任务范围增加/减少；任务强度上升/下降。(而且这次数据清洗真的洗掉了很多噪音，之前不显著很可能其实是因为噪音太大了)
+
+\textbf{数据}：2016--2025 年约 2680 万条招聘广告，之前已经跑完了 LDA 主题模型，拿到了每个岗位的技能分布（用 Shannon 熵等 8 个不同指标来衡量“技能综合性”）。这次的任务是构建回归面板，把【有时变的】AI 暴露度接上去，跑 DID。
+
+而且这次数据清洗真的洗掉了很多噪音，之前不显著很可能其实是因为噪音太大了。
+
+\medskip
+\textbf{整体pipeline}：
+\begin{center}
+\small
+merged\_1\_6.csv (27.4M) $\rightarrow$ NLP (jieba) $\rightarrow$ LDA ($K{=}50$) $\rightarrow$ 全量推断 (26.8M) $\rightarrow$ 8 指标\\[2pt]
+$\rightarrow$ 职业聚类 (74 类) $\rightarrow$ 行业分类 (96.4\%) $\rightarrow$ 三级面板 $\rightarrow$ AI 暴露度 (ILO) $\rightarrow$ DID
+\end{center}
+\end{chapterbox}
+
+\bigskip
+
+% ================================================================
+\section*{1. LDA 训练}
+
+\subsection*{为什么用 LDA}
+
+试过 BERTopic 还有 word2vec 了，但确实就像天宇老师说的，研究问题有些偏离，而且 2680 万条文档太大了，BERT 系的跑不动。LDA 用吉布斯采样可以跑大规模语料，而且主题分布本身就是我们要的因变量——每个文档的 topic distribution 天然就可以算熵。
+
+\subsection*{训练参数}
+
+\begin{itemize}
+  \item 库：tomotopy（Collapsed Gibbs Sampling），比 gensim 的 VB 快很多！
+  \item $K = 50$：做了 grid search（$K \in \{20,30,40,50,60,70,80,100\}$），$K{=}50$ 的 $C_V = 0.5970$ 最高（大部分论文的 $C_V$ 在 0.55--0.65 这个区间，$K{=}40$ 时只有 0.58 多，$K{=}60$ 又下降到 0.59 了，很可能就是过拟合了）
+  \item 训练集：从 26.8M 文档里 10\% 随机采样 $\approx$ 268 万条，迭代 1000 轮
+  \item 词表过滤：MIN\_CF=10（词频$<$10 的扔掉），RM\_TOP=15（去掉最高频的 15 个词）
+  \item 训练时间：约 60 分钟
+\end{itemize}
+
+\begin{defbox}{推断：解析 Folding-in}
+没有用 Gibbs 采样做推断（太慢），用的是\textbf{解析 folding-in}：
+
+$$P(\text{topic}_k | \text{doc}) \propto \alpha_k \cdot \left[\prod_{i} P(w_i | \text{topic}_k)\right]^{1/n}$$
+
+最关键的改动：加了 \textbf{geometric mean normalization}（指数上除以 $n$），这样短文档和长文档的熵才有可比性。不加这个的话，长 JD 天然熵更高，会引入 document length bias。
+
+噪声主题：手动标了 6 个噪声主题（福利待遇、公司地址、HR 模板之类的），推断时从分布里去掉，有效主题数 $K_{\text{CLEAN}} = 44$。全量推断 26.8M 文档，4 进程并行，约 30 分钟。
+\end{defbox}
+
+\bigskip
+
+% ================================================================
+\section*{2. 八个指标}
+
+这 8 个指标从不同角度衡量"技能综合性"——一个岗位的技能要求是集中在少数领域，还是分散在多个领域。
+
+设 $p = (p_1, \ldots, p_K)$ 是一个岗位在 $K{=}44$ 个有效主题上的概率分布。
+
+\subsection*{衡量"分散程度"的（越大越综合）}
+
+\begin{enumerate}
+  \item \textbf{entropy\_score}（归一化 Shannon 熵）：
+  $H = -\sum_k p_k \ln p_k$，$\text{entropy\_score} = H / \ln K$，归一化到 $[0,1]$。等于 1 说明均匀分布（技能完全分散），等于 0 说明集中在一个主题。这是\textbf{主指标}。
+
+  \item \textbf{ent\_effective}（有效主题数）：$N_{\text{eff}} = e^H$，把熵转换成"等效均匀分布的主题数"，比如 $N_{\text{eff}}{=}5$ 意味着这个岗位的技能分布"相当于"均匀分布在 5 个主题上。
+
+  \item \textbf{rao\_q}（Rao 二次熵）：
+  $Q = \sum_{j \neq k} d_{jk} \cdot p_j \cdot p_k$，其中 $d_{jk} = \text{JSD}(\phi_j \| \phi_k)$。和 Shannon 熵的区别：Shannon 只看概率分布是否均匀，Rao-Q 还看主题之间是否真的不一样。如果一个岗位均匀分散在 5 个主题上但这 5 个主题其实都在讲差不多的事（$d_{jk}$ 小），Rao-Q 就不高。
+
+  \item \textbf{n\_sig\_topics}（显著主题数）：$n_{\text{sig}} = \#\{k : p_k > 1/K\}$，数有几个主题的概率超过了"均匀线" $1/44 \approx 2.3\%$。
+
+  \item \textbf{tail\_mass\_ratio}（尾部质量比）：$\text{TMR} = 1 - \sum_{\text{top-3}} p_k$，值越高说明任务集中度很低，综合度更高。
+\end{enumerate}
+
+\subsection*{衡量"集中程度"的（越大越集中，方向相反）}
+
+\begin{enumerate}\setcounter{enumi}{5}
+  \item \textbf{hhi\_score}（HHI 指数）：$\text{HHI} = \sum_k p_k^2$，赫芬达尔指数，产业组织里衡量市场集中度的经典指标。
+  \item \textbf{dominant\_topic\_prob}：$\text{DTP} = \max_k p_k$，越高说明这个岗位越"单一技能"。
+  \item \textbf{gini}（基尼系数）：洛伦兹曲线面积 $\times 2$。和 HHI 的区别：HHI 对大概率主题特别敏感（一个 60\% 的主题贡献 0.36），Gini 看的是整条分布的不平等程度，对中间部分的变化更敏感，相对更稳健。
+\end{enumerate}
+
+\subsection*{为什么要 8 个}
+
+一个指标可能有局限。比如 Shannon 熵不考虑主题间的相似性（Rao-Q 补充了），HHI 对极端值敏感（Gini 更稳健），n\_sig\_topics 太离散（熵是连续的）。8 个一起跑，如果方向全部一致，结论就更可靠。
+
+实际结果确实 8 个全部显著、方向一致！
+
+\begin{exambox}[局限]
+这些指标衡量的是技能的\textbf{广度}，没有测量或处理\textbf{强度}。比如一个岗位从"精通 Python"变成"了解 Python + 了解 Java + 了解 SQL"，熵会上升，但可能是要求降低了而不是升高了。目前没有拆分 extensive margin（新增技能领域）和 intensive margin（单个技能深度变化）。
+\end{exambox}
+
+\bigskip
+
+% ================================================================
+\section*{3. 行业分类}
+
+用企业名称做正则关键词匹配，分到 GB/T 4754-2017 的 19 个行业门类。
+
+迭代了 6 轮才达标：$76.8\% \rightarrow 84.4\% \rightarrow 87.0\% \rightarrow 90.6\% \rightarrow 93.1\% \rightarrow 96.4\%$。主要是不断加关键词和具体公司名（最后堆了 300+ 关键词 + 200+ 公司名）。几个坑：
+
+\begin{itemize}
+  \item "控股"一开始放在房地产(K)，后来改成金融(J)了
+  \item 括号问题：原始数据里比如"金地（集团）"的括号会干扰匹配，要先去掉括号字符
+  \item "集团股份"/"集团有限"最后还是作为制造业(C)的最低优先级兜底，因为分析了一下未匹配的集团公司确实大部分是制造业
+\end{itemize}
+
+最终匹配率 96.4\%（26,445,821 / 27,436,387）。
+
+\bigskip
+
+% ================================================================
+\section*{4. 面板构建}
+
+把 LDA 指标、职业聚类、行业分类通过 \texttt{id = row\_idx + 1} 合并，生成三份面板：
+
+\begin{center}
+\small
+\begin{tabular}{llp{7cm}}
+\toprule
+面板 & 规模 & 说明 \\
+\midrule
+\texttt{job\_panel.csv} & 2508 万行 & 岗位级，每行一个岗位 \\
+\texttt{occ\_year\_panel.csv} & 740 行 & 74 职业 $\times$ 10 年，含 mean/median/sd \\
+\texttt{ind\_occ\_year\_panel.csv} & 13{,}472 行 & 19 行业 $\times$ 74 职业 $\times$ 10 年 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+其中职业+行业都匹配上的有 2418 万行。
+
+\bigskip
+
+% ================================================================
+\section*{5. AI 暴露度}
+
+这里试了几种方案，最后还是用的是 ILO Working Paper 140 (Gmyrek et al., 2025) 的数据。
+
+我们数据里本来就有 ILO 的 ISCO-08 暴露度数据（303 个职业的 GenAI 暴露均值），还有上一轮做的 SBERT 语义匹配（71.4 万个岗位名 $\rightarrow$ ISCO 码）。
+
+方案： 
+\begin{enumerate}
+  \item 加载 SBERT lookup（71.4 万个原始岗位名 $\rightarrow$ ISCO）
+  \item 加载 cluster map（2607 万行 row\_idx $\rightarrow$ cluster\_id）
+  \item 流式读 merged\_1\_6.csv（2744 万行），每行同时查原始岗位名$\rightarrow$ISCO$\rightarrow$ILO 分数和 row\_idx$\rightarrow$cluster\_id
+  \item 按 cluster 取平均
+\end{enumerate}
+
+这样做的好处是 SBERT lookup 和原始数据的岗位名格式完全一致（都是原始的），不存在清洗格式不匹配的问题。之前试过用 title2cluster.pkl（50K 个清洗后的短 title）去匹配 SBERT lookup（71 万个原始长 title），格式对不上只有 37\% 匹配率。
+
+最终结果：405 万行同时匹配上了 cluster 和 ISCO（14.8\%），74 个聚类全部有值。
+
+分布：均值 0.395，中位数 0.397，范围 $[0.226, 0.586]$。
+
+\textbf{高暴露的}：前端 Web 开发 0.586、会计 0.562、\textbf{翻译与外语 0.553}、电话销售 0.545、在线客服 0.539、Java 开发 0.525
+
+\textbf{低暴露的}：焊工 0.226、餐饮 0.253、机械加工 0.256、幼教 0.259、保安保洁 0.270
+
+\textbf{翻译岗修正}：最初 C78 翻译与外语只拿到 0.342，但 ILO 原始数据里翻译员(ISCO 2643)应该是 0.59。原因是 SBERT 把翻译类标题（"英语翻译""日语翻译"等）匹配到了语言教师(ISCO 2353, 0.34)而不是翻译员。加了关键词覆盖规则：标题含"翻译"且 SBERT 未匹配或匹配到语言教师/教授(2353/2330)时，强制映射到 ISCO 2643。修正后匹配行数 $8{,}480 \rightarrow 56{,}410$，暴露度 $0.342 \rightarrow 0.553$，回到合理区间。
+
+\bigskip
+
+% ================================================================
+\section*{6. DID 回归设计}
+
+\begin{defbox}{模型设定}
+$$Y_{o,i,t} = \beta (\text{AIExposure}_o \times \text{Post}_t) + \gamma_o + \delta_t + \theta_i + \varepsilon_{o,i,t}$$
+
+\begin{itemize}
+  \item $Y$：8 个技能综合性指标；AIExposure：职业 $o$ 的 ILO 暴露度（连续）
+  \item 固定效应：职业 $\gamma_o$ + 年份 $\delta_t$ + 行业 $\theta_i$
+  \item WLS，权重 = n\_jobs；聚类标准误按 cluster\_id
+  \item 数据用 \texttt{ind\_occ\_year\_panel.csv}，剔掉应届生(C24)和实习生(C35)两个特殊聚类，剩 13{,}103 个观测
+\end{itemize}
+\end{defbox}
+
+\bigskip
+
+% ================================================================
+\section*{7. 结果}
+
+跑了两个 Post 设定做对比：Post$\geq$2023 和 Post$\geq$2022。ChatGPT 是 2022 年 11 月底发布的，所以两个都有道理。
+
+\subsection*{7.1 Post $\geq$ 2023（基期 2022）--- 主回归}
+
+8 个指标全部 $p<0.01$，方向完全一致：
+
+\begin{center}
+\small
+\begin{tabular}{lcccp{4.5cm}}
+\toprule
+因变量 & $\beta$ & SE & $p$ & 解读 \\
+\midrule
+Shannon Entropy & $+0.117$*** & 0.039 & 0.003 & 技能分布更均匀分散 \\
+Effective Topics & $+2.677$*** & 0.835 & 0.001 & 多约 2.7 个有效主题 \\
+Rao-Q & $+0.065$*** & 0.023 & 0.005 & 技能间差异性更大 \\
+Gini & $-0.053$*** & 0.018 & 0.003 & 集中度下降 \\
+Sig Topics & $+1.408$*** & 0.416 & 0.001 & 多约 1.4 个显著技能 \\
+Tail Mass & $+0.092$*** & 0.028 & 0.001 & 非主导技能权重增加 \\
+HHI & $-0.123$*** & 0.045 & 0.006 & 集中度下降 \\
+Dom.\ Topic Prob & $-0.106$*** & 0.037 & 0.004 & 主导技能概率下降 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{7.2 Post $\geq$ 2022（基期 2021）--- $\beta$ 和显著性都比 Post$\geq$2023 更强}
+
+\begin{center}
+\small
+\begin{tabular}{lcccc}
+\toprule
+因变量 & $\beta$ & SE & $p$ & vs Post$\geq$2023 \\
+\midrule
+Shannon Entropy & $+0.127$*** & 0.039 & 0.001 & $\uparrow$更强 \\
+Effective Topics & $+3.136$*** & 0.949 & 0.001 & $\uparrow$更强 \\
+Rao-Q & $+0.072$*** & 0.023 & 0.002 & $\uparrow$更强 \\
+Gini & $-0.062$*** & 0.020 & 0.002 & $\uparrow$更强 \\
+Sig Topics & $+1.590$*** & 0.438 & 0.000 & $\uparrow$更强 \\
+Tail Mass & $+0.107$*** & 0.031 & 0.001 & $\uparrow$更强 \\
+HHI & $-0.127$*** & 0.043 & 0.003 & $\uparrow$更强 \\
+Dom.\ Topic Prob & $-0.116$*** & 0.036 & 0.002 & $\uparrow$更强 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Post$\geq$2022 效果更好，说明 AI 的影响可能从 2022 年就开始了（ChatGPT 发布效应）。
+
+\subsection*{7.3 职业$\times$年份面板（不加行业 FE）}
+
+用 \texttt{occ\_year\_panel.csv}（740 个观测），Post$\geq$2022：
+
+\begin{itemize}
+  \item Entropy: $\beta=+0.115$***, $p=0.006$, $R^2=0.887$
+  \item Eff Topics: $\beta=+2.840$***, $p=0.003$, $R^2=0.838$
+\end{itemize}
+
+方向一致，$R^2$ 更高（聚合降噪了）。
+
+\subsection*{7.4 对AIexpo的时变处理：$\times$ 累计 LLM 模型数}
+
+用 Epoch AI 数据库中"语言模型"（Language domain）的\textbf{累计发布数量}作为逐年 AI 渗透强度，归一化到 $[0,1]$：
+
+$$\text{Treatment}_{o,t} = \text{AIExposure}_o \times \frac{\text{CumulativeLLMs}_t}{\max_t \text{CumulativeLLMs}_t}$$
+
+\begin{center}
+\small
+\begin{tabular}{cccc}
+\toprule
+年份 & 当年新增 & 累计 & 归一化强度 \\
+\midrule
+2016 & 8 & 8 & 0.018 \\
+2017 & 19 & 27 & 0.062 \\
+2018 & 24 & 51 & 0.116 \\
+2019 & 39 & 90 & 0.205 \\
+2020 & 29 & 119 & 0.271 \\
+2021 & 38 & 157 & 0.358 \\
+2022 & 47 & 204 & 0.465 \\
+2023 & 76 & 280 & 0.638 \\
+2024 & 77 & 357 & 0.813 \\
+2025 & 82 & 439 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+这个 proxy 的优势：(1) \textbf{单调递增}，累计计数天然只增不减，和技能综合化的趋势方向一致；(2) \textbf{LLM 特异性}，只数语言模型，不包含计算机视觉、机器人等 AI 子领域；(3) \textbf{加速特征}，2022--2024 年新增速度明显快于前期（47$\rightarrow$76$\rightarrow$77/年 vs 之前平均 26/年），捕获了 ChatGPT 后的爆发；(4) \textbf{学术来源可靠}，Epoch AI 是 AI 领域广泛引用的追踪数据库。
+
+\begin{exambox}[时变 Treatment：8 个指标全部 $p<0.001$，方向完全一致]
+\begin{center}
+\small
+\begin{tabular}{lcccp{4.5cm}}
+\toprule
+因变量 & $\beta$ & SE & $p$ & 解读 \\
+\midrule
+Shannon Entropy & $+0.275$*** & 0.075 & 0.0002 & 技能分布更均匀分散 \\
+Effective Topics & $+6.206$*** & 1.676 & 0.0002 & 多约 6.2 个有效主题 \\
+Rao-Q & $+0.158$*** & 0.045 & 0.0004 & 技能间差异性更大 \\
+Gini & $-0.120$*** & 0.034 & 0.0005 & 集中度下降 \\
+Sig Topics & $+3.406$*** & 0.853 & 0.0001 & 多约 3.4 个显著技能 \\
+Tail Mass & $+0.218$*** & 0.057 & 0.0001 & 非主导技能权重增加 \\
+HHI & $-0.298$*** & 0.085 & 0.0005 & 集中度下降 \\
+Dom.\ Topic Prob & $-0.262$*** & 0.072 & 0.0003 & 主导技能概率下降 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$\beta$ 的解读：以 Shannon Entropy 为例，$\beta=+0.275$ 意味着 AI 暴露度每增加 1（从最低到最高）且 LLM 累计渗透强度从 0 到 1（从 2016 到 2025），技能熵增加 0.275 个标准单位。效应量大约是基础 DID（7.2 节 $\beta=+0.127$）的 2 倍，因为时变 treatment 利用了全时间维度的变异，而不仅是 Post 的 0/1 跳跃。
+
+和 7.4/7.5 的关系：基础 DID 加 occupation-specific linear trend 后全部不显著，是因为静态 \texttt{AIExposure $\times$ Post} 和 \texttt{AIExposure $\times$ t} 高度共线。而时变 treatment 的 \texttt{AIExposure $\times$ CumulativeLLMs\_t} 不是线性的——2022--2024 的加速增长提供了额外变异，打破了共线性。
+
+数据来源：Epoch AI Notable AI Models Database，筛选 domain=Language。
+\end{exambox}
+
+\subsection*{7.5 趋势控制稳健性检验}
+
+对时变 treatment 分别加入职业级和行业级线性趋势控制，检验结果是否由差异化时间趋势驱动。
+
+\medskip
+\textbf{(a) 加职业线性趋势 \texttt{AIExposure$_o$ $\times$ t}}：
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+因变量 & $\beta$ (tv+occ\_trend) & SE & $p$ \\
+\midrule
+Shannon Entropy & $-0.193$ & 0.253 & 0.445 \\
+Effective Topics & $-2.612$ & 5.238 & 0.618 \\
+Rao-Q & $-0.133$ & 0.161 & 0.408 \\
+Gini & $+0.030$ & 0.104 & 0.774 \\
+Sig Topics & $-3.183$ & 2.901 & 0.273 \\
+Tail Mass & $-0.138$ & 0.174 & 0.429 \\
+HHI & $+0.282$ & 0.319 & 0.376 \\
+Dom.\ Topic Prob & $+0.246$ & 0.269 & 0.360 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{8 个全部不显著}。说明累计 LLM 模型数与线性时间趋势高度共线（$\text{corr}(\text{CumulativeLLMs}_t, t) \approx 0.99$），职业级线性趋势把时变 treatment 的信号全部吸收了。
+
+\medskip
+\textbf{(b) 加行业线性趋势 $C(\text{industry}) \times t$}：
+
+\begin{center}
+\small
+\begin{tabular}{lcccp{4cm}}
+\toprule
+因变量 & $\beta$ (tv+ind\_trend) & SE & $p$ & 解读 \\
+\midrule
+Shannon Entropy & $+0.236$*** & 0.073 & 0.001 & 仍显著 \\
+Effective Topics & $+5.383$*** & 1.615 & 0.001 & 仍显著 \\
+Rao-Q & $+0.132$*** & 0.044 & 0.003 & 仍显著 \\
+Gini & $-0.106$*** & 0.033 & 0.001 & 仍显著 \\
+Sig Topics & $+2.861$*** & 0.845 & 0.001 & 仍显著 \\
+Tail Mass & $+0.190$*** & 0.055 & 0.001 & 仍显著 \\
+HHI & $-0.247$*** & 0.086 & 0.004 & 仍显著 \\
+Dom.\ Topic Prob & $-0.215$*** & 0.072 & 0.003 & 仍显著 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{8 个全部仍然显著}（$p < 0.005$），$\beta$ 只比无控制时小约 15\%。
+
+\begin{defbox}{趋势控制的识别含义}
+\begin{itemize}
+  \item 行业趋势控制通过 $\Rightarrow$ 效应不是行业级差异化趋势驱动的（比如"IT 行业整体在上升"），而是\textbf{同一行业内}，AI 暴露度更高的职业技能综合化更快。
+  \item 职业趋势控制不通过 $\Rightarrow$ 累计 LLM 曲线和 $\text{AIExposure}_o \times t$ 高度共线，无法区分"AI 渐进渗透的因果效应"和"高暴露职业本来就有的线性趋势"。这是时不变暴露度的根本局限。
+  \item \textbf{但这不意味着没有因果效应}。线性趋势本身可能就\emph{是} AI 渐进渗透的结果——2016 年已经有 8 个 notable 语言模型了。如果 AI 的影响是从 2016 年就开始、逐年加深的（而非 2022 年突然开始），那线性趋势控制会把因果效应一起吸收掉。这是一个无法用当前数据结构解决的识别问题。
+\end{itemize}
+\end{defbox}
+
+\bigskip
+
+% ================================================================
+\section*{8. 事件研究}
+
+\subsection*{8.1 基期 2022（对应 Post$\geq$2023）}
+
+\begin{center}
+\small
+\begin{tabular}{lccl}
+\toprule
+年份 & $\beta$ & $p$ & 备注 \\
+\midrule
+2016 & $-0.199$*** & 0.000 & \\
+2017 & $-0.157$*** & 0.000 & \\
+2018 & $-0.099$** & 0.031 & \\
+2019 & $-0.123$ & 0.186 & 不显著了 \\
+2020 & $-0.083$ & 0.330 & 不显著 \\
+2021 & $-0.030$ & 0.374 & 接近零 \\
+\textbf{2022} & \textbf{0} & --- & \textbf{基期} \\
+2023 & $-0.002$ & 0.903 & 约等于零 \\
+2024 & $+0.089$* & 0.050 & 开始正向 \\
+2025 & $-0.183$*** & 0.002 & 反转 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{8.2 基期 2021（对应 Post$\geq$2022）}
+
+\begin{center}
+\small
+\begin{tabular}{lccl}
+\toprule
+年份 & $\beta$ & $p$ & 备注 \\
+\midrule
+2016 & $-0.170$*** & 0.002 & \\
+2017 & $-0.127$*** & 0.003 & \\
+2018 & $-0.069$ & 0.146 & 不显著了（比基期 2022 更早"清零"）\\
+2019 & $-0.093$ & 0.294 & 不显著 \\
+2020 & $-0.053$ & 0.463 & 不显著 \\
+\textbf{2021} & \textbf{0} & --- & \textbf{基期} \\
+2022 & $+0.030$ & 0.374 & 小幅正向不显著 \\
+2023 & $+0.028$ & 0.394 & 小幅正向不显著 \\
+2024 & $+0.119$* & 0.071 & 边际显著 \\
+2025 & $-0.153$** & 0.013 & 反转 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+基期 2021 的 pre-trend 更干净——2018 就不显著了（基期 2022 时 2018 还是 $p=0.031$）。Post 期间 2022--2023 系数都是正的但不显著，2024 边际显著。
+
+两个问题要注意：
+\begin{enumerate}
+  \item \textbf{Pre-trend 不是严格的零}：2016--2017 的系数显著为负。不过好在是单调趋零的，说明是收敛趋势而非发散。
+  \item \textbf{2025 反转了}：很可能是因为 2025 年数据不完整（可能只有前几个月），样本有偏。建议正式分析截断到 2024 年。
+\end{enumerate}
+
+\bigskip
+
+% ================================================================
+\section*{9. 结论与讨论}
+
+\begin{exambox}[核心发现（旧版，基于 cluster 面板）]
+\begin{enumerate}
+  \item \textbf{基础 DID}（静态 Post）：8 个指标全部 $p<0.01$，高 AI 暴露职业技能更综合。
+  \item \textbf{加职业 linear trend 后全部不显著}：显著性由 pre-treatment 线性趋势驱动，post 期间无额外跳跃。
+  \item \textbf{时变 Treatment}（累计 LLM 数）：8 个指标全部 $p<0.001$，$\beta$ 约为基础 DID 的 2 倍。
+  \item \textbf{趋势控制稳健性}：加行业线性趋势后仍然 8/8 显著（$p<0.005$），说明效应是职业层面的、非行业驱动的；但加职业线性趋势后 0/8 显著，因为累计 LLM 曲线与 $t$ 高度共线。
+\end{enumerate}
+
+\medskip
+\textbf{识别逻辑}：静态 $\text{AIExposure}_o \times \text{Post}_t$ 隐含 AI 处理是 0/1 开关，但 AI 渗透是逐年加深的。改用 $\text{AIExposure}_o \times \text{CumulativeLLMs}_t$ 后，利用了全时间维度的连续变异。行业趋势控制确认了效应的职业特异性，但与职业线性趋势的共线性是时不变暴露度的根本局限——线性趋势本身可能就是 AI 渐进渗透的因果后果。
+\end{exambox}
+
+\end{document}

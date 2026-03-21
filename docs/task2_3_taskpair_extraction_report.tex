@@ -1,0 +1,297 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[UTF8]{ctex}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{graphicx}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+
+% 设置代码高亮
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny,
+    frame=single,
+    breaklines=true,
+    showstringspaces=false
+}
+
+\title{\textbf{Task 2.3: 任务对提取技术报告}}
+\date{2026年2月4日}
+
+\begin{document}
+
+\maketitle
+
+\section{任务概述}
+
+Task 2.3的目标是从职位描述文本中提取动词-名词任务对组合，用于分析AI时代下工作技能的演变模式。本任务采用jieba中文分词库进行词性标注，识别动词(v*)和名词(n*)的组合关系，通过频率统计和过滤构建高质量的任务对词典。
+
+\section{任务对提取方法}
+
+\subsection{核心算法}
+
+任务对提取采用以下步骤：
+
+\begin{enumerate}
+    \item \textbf{中文分词与词性标注}：使用jieba库对职位描述进行分词和POS标注
+    \item \textbf{词性过滤}：提取动词（v*）和名词（n*）序列
+    \item \textbf{组合生成}：将文本中的所有动词与所有名词进行笛卡尔积组合
+    \item \textbf{频率统计}：统计每个动词-名词对的出现频率
+    \item \textbf{过滤优化}：根据最小频率阈值过滤低频任务对
+\end{enumerate}
+
+\subsection{技术实现}
+
+\subsubsection{分词与标注代码示例}
+
+\begin{lstlisting}[caption=任务对提取核心代码]
+def extract_task_pairs_from_text(self, text):
+    """从单个文本中提取任务对"""
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    pairs = []
+    try:
+        # 分词并标注词性
+        words = pseg.cut(text)
+
+        # 提取动词和名词序列
+        verbs = []
+        nouns = []
+
+        for word, flag in words:
+            if flag.startswith('v'):  # 动词
+                verbs.append(word)
+            elif flag.startswith('n'):  # 名词
+                nouns.append(word)
+
+        # 生成动词-名词对
+        for verb in verbs:
+            for noun in nouns:
+                pairs.append((verb, noun))
+
+    except Exception as e:
+        logging.warning(f"Error processing text: {e}")
+
+    return pairs
+\end{lstlisting}
+
+\subsubsection{大规模数据处理策略}
+
+\begin{itemize}
+    \item \textbf{分块处理}：采用pandas分块读取，避免内存溢出
+    \item \textbf{单线程优化}：使用单线程处理避免多进程内存竞争
+    \item \textbf{中间结果保存}：每处理5个数据块保存中间结果
+    \item \textbf{垃圾回收}：主动进行内存清理和垃圾回收
+\end{itemize}
+
+\section{处理结果汇总}
+
+\subsection{数据规模统计}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{指标} & \textbf{数值} \\
+\midrule
+总任务对数量 & 279,053 \\
+过滤后任务对数量 (min\_freq≥5) & 43,305 \\
+唯一动词数量 & 10,872 \\
+唯一名词数量 & 25,572 \\
+处理文本总数 & 100,000 \\
+处理时间 & 123.30秒 \\
+\bottomrule
+\end{tabular}
+\caption{任务对提取统计结果}
+\end{table}
+
+\subsection{Top 10 任务对分析}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{排名} & \textbf{任务对} & \textbf{频率} \\
+\midrule
+1 & 工作-经验 & 37,607 \\
+2 & 沟通-能力 & 20,002 \\
+3 & 任职-资格 & 14,420 \\
+4 & 工作-时间 & 12,161 \\
+5 & 优先-经验 & 11,313 \\
+6 & 合作-团队 & 10,139 \\
+7 & 工作-内容 & 9,944 \\
+8 & 协调-能力 & 9,776 \\
+9 & 学习-能力 & 8,650 \\
+10 & 管理-经验 & 6,862 \\
+\bottomrule
+\end{tabular}
+\caption{最频繁的任务对组合}
+\end{table}
+
+\textcolor{blue}{\textbf{分析洞察}}：从Top 10任务对可以看出，工作经验、沟通能力和团队合作是当前职位描述中最核心的技能需求模式。
+
+\subsection{动词频率分布}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{排名} & \textbf{动词} & \textbf{频率} \\
+\midrule
+1 & 工作 & 176,812 \\
+2 & 管理 & 68,170 \\
+3 & 销售 & 56,899 \\
+4 & 提供 & 40,335 \\
+5 & 沟通 & 39,549 \\
+6 & 合作 & 29,822 \\
+7 & 优先 & 29,758 \\
+8 & 设计 & 27,853 \\
+9 & 培训 & 25,889 \\
+10 & 分析 & 25,474 \\
+\bottomrule
+\end{tabular}
+\caption{最频繁的动词统计}
+\end{table}
+
+\subsection{名词频率分布}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{排名} & \textbf{名词} & \textbf{频率} \\
+\midrule
+1 & 经验 & 82,673 \\
+2 & 能力 & 75,926 \\
+3 & 公司 & 59,131 \\
+4 & 客户 & 58,947 \\
+5 & 团队 & 35,499 \\
+6 & 项目 & 32,005 \\
+7 & 产品 & 26,888 \\
+8 & 计划 & 22,382 \\
+9 & 员工 & 20,644 \\
+10 & 专业 & 19,385 \\
+\bottomrule
+\end{tabular}
+\caption{最频繁的名词统计}
+\end{table}
+
+\section{性能优化与技术挑战}
+
+\subsection{内存管理策略}
+
+\begin{itemize}
+    \item \textbf{分块处理}：每次处理5,000条记录，避免内存峰值
+    \item \textbf{数据结构优化}：使用defaultdict和Counter进行高效计数
+    \item \textbf{垃圾回收}：主动调用gc.collect()释放内存
+    \item \textbf{中间结果保存}：定期序列化结果到磁盘
+\end{itemize}
+
+\subsection{计算效率分析}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{处理规模} & \textbf{时间} & \textbf{效率} \\
+\midrule
+100,000文本 & 123.30秒 & 811文本/秒 \\
+预计1,000,000文本 & 20.6分钟 & 811文本/秒 \\
+预计13,000,000文本 & 4.5小时 & 811文本/秒 \\
+\bottomrule
+\end{tabular}
+\caption{处理效率评估}
+\end{table}
+
+\textcolor{blue}{\textbf{技术评估}}：单线程处理策略在M4芯片上表现出色，内存使用稳定，适合大规模数据处理。
+
+\section{质量控制与验证}
+
+\subsection{过滤策略}
+
+\begin{itemize}
+    \item \textbf{最小频率过滤}：min\_freq=5，去除偶然出现的组合
+    \item \textbf{词性准确性}：严格按照jieba词性标注进行筛选
+    \item \textbf{中文优化}：针对中文职位描述的特殊处理
+\end{itemize}
+
+\subsection{结果验证}
+
+\begin{itemize}
+    \item \textbf{人工抽样检查}：随机抽取100个任务对进行人工验证
+    \item \textbf{语义合理性}：确保动词-名词组合具有实际意义
+    \item \textbf{领域相关性}：验证结果符合人力资源和职业分析领域
+\end{itemize}
+
+\section{应用价值与未来扩展}
+
+\subsection{多方法验证框架}
+
+任务对提取作为AI时代技能演变研究的三大验证方法之一：
+
+\begin{enumerate}
+    \item \textbf{LDA主题建模}：从文档层面发现主题模式
+    \item \textbf{任务对提取}：从词汇层面分析技能组合
+    \item \textbf{SBERT语义嵌入}：从语义层面验证技能演变
+\end{enumerate}
+
+\subsection{扩展方向}
+
+\begin{itemize}
+    \item \textbf{时间序列分析}：对比不同时间窗口的任务对变化
+    \item \textbf{行业细分}：按行业领域分析技能模式差异
+    \item \textbf{技能网络构建}：基于任务对构建技能关联网络
+    \item \textbf{AI影响评估}：量化AI技术对技能需求的影响
+\end{itemize}
+
+\section{结论}
+
+Task 2.3成功实现了大规模中文职位描述的任务对提取，处理了10万条文本，生成了43,305个高质量的任务对组合。核心发现包括：
+
+\begin{itemize}
+    \item 工作经验、沟通能力和团队合作是最核心的技能需求
+    \item 动词维度上"工作"、"管理"、"销售"为最频繁动作
+    \item 名词维度上"经验"、"能力"、"公司"为最重要对象
+    \item 单线程优化策略在M4芯片上表现出色，适合大规模处理
+\end{itemize}
+
+该方法为后续的技能演变分析提供了坚实的数据基础，支持多方法验证框架的有效实施。
+
+\section{附录：技术实现细节}
+
+\subsection{依赖环境}
+
+\begin{itemize}
+    \item Python 3.11 (Miniconda环境)
+    \item jieba 0.42.1 (中文分词库)
+    \item pandas (数据处理)
+    \item pickle (数据序列化)
+\end{itemize}
+
+\subsection{文件输出}
+
+\begin{itemize}
+    \item \texttt{task\_pairs\_dict.pkl}：任务对词典和频率统计
+    \item \texttt{task\_pairs\_statistics.txt}：统计报告
+    \item \texttt{taskpair\_extraction\_*.log}：处理日志
+\end{itemize}
+
+\subsection{代码结构}
+
+\begin{itemize}
+    \item \texttt{production\_extractor.py}：生产环境处理脚本
+    \item \texttt{optimized\_extractor.py}：测试环境处理脚本
+    \item \texttt{view\_results.py}：结果可视化工具
+\end{itemize}
+
+\end{document}

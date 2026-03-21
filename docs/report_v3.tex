@@ -1,0 +1,1271 @@
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{geometry}
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{ragged2e}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\title{\textbf{方法论备忘录}\\
+\large 六个方法论问题的处理说明\\[0.5em]
+\normalsize 技能综合性与AI暴露：中国招聘广告证据}
+\author{研究备忘}
+\date{2026年2月}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ===================================================================
+\section{问题二：行业分类}
+\label{sec:industry}
+% ===================================================================
+
+\subsection{标准行业分类（20门类）}
+
+本研究使用《国民经济行业分类》（GB/T 4754）20门类作为基础行业分类。
+原始招聘数据中含有平台标注的行业字段，经映射后得到20个一级门类，
+涵盖农林牧渔、采矿业、制造业、电力燃气水、建筑业、批发零售、
+交通运输、住宿餐饮、信息传输软件和信息技术（IT）、金融业、
+房地产、科学研究、水利环境、教育、卫生社保、文化体育、
+公共管理、国际组织等。
+
+分析样本共包含样本期（2016--2018, 2021--2025）内\textbf{7,794,721}条招聘广告，
+有效匹配20门类的比例超过95\%。
+
+\subsection{经济含义分类方案}
+
+在标准20门类基础上，我们构造了三种具有经济含义的分组方案，
+用于异质性分析。
+
+\subsubsection{方案A：技术驱动类型（\texttt{tech\_type}）}
+
+将20门类映射至四类：
+
+\begin{table}[h!]
+\centering
+\caption{技术驱动类型分类方案}
+\label{tab:tech_type}
+\begin{tabular}{llr}
+\toprule
+类别 & 典型行业 & 2024年样本量 \\
+\midrule
+tech\_driven & IT、科学研究、金融 & 219,131 \\
+service\_driven & 批发零售、住宿餐饮、文化体育、教育 & 394,402 \\
+manufacturing & 制造、采矿、电力燃气水、建筑 & 453,657 \\
+traditional & 农林牧渔、交通运输、房地产、公共管理 & 106,056 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{主题熵均值演变}
+
+\begin{table}[h!]
+\centering
+\caption{tech\_type各组主题熵均值（2016--2024）}
+\label{tab:tech_type_sci}
+\begin{tabular}{lrrrr}
+\toprule
+类别 & 2016 & 2022 & 2024 & 涨幅 \\
+\midrule
+tech\_driven  & 0.3929 & 0.4273 & 0.4363 & $+11.0\%$ \\
+service\_driven & 0.3936 & 0.4262 & 0.4342 & $+10.3\%$ \\
+manufacturing & 0.3933 & 0.4255 & 0.4325 & $+10.0\%$ \\
+traditional   & 0.3921 & 0.4260 & 0.4316 & $+10.1\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+结果显示，\textbf{技术驱动型行业主题熵上升最快}（$+11.0\%$），
+传统型行业最慢（$+10.1\%$），但各组差距较小（约1个百分点）。
+技术驱动型行业的领先优势主要来自IT与金融部门，
+与知识密集型行业对技能广度需求更强的预期一致。
+
+\subsubsection{方案B：内生增长视角（\texttt{endogenous\_growth}）}
+
+参照Romer（1990）增长理论，将行业按增长引擎分为四类：
+
+\begin{table}[h!]
+\centering
+\caption{内生增长视角分类方案}
+\label{tab:endo_growth}
+\begin{tabular}{lrrrr}
+\toprule
+类别 & 典型行业 & 2016 & 2024 & 涨幅 \\
+\midrule
+ideas\_frontier  & IT、科研 & 0.3931 & 0.4364 & $+11.0\%$ \\
+human\_capital   & 教育、金融、卫生 & 0.3919 & 0.4338 & $+10.7\%$ \\
+physical\_capital & 制造、建筑、电力 & 0.3945 & 0.4334 & $+9.9\%$ \\
+labor\_intensive  & 农林、批零、住餐 & 0.3934 & 0.4325 & $+9.9\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{解读}
+ideas\_frontier（技术前沿型）涨幅最大（$+11.0\%$），
+human\_capital型紧随其后（$+10.7\%$），
+而physical\_capital和labor\_intensive型（$+9.9\%$）基本持平。
+这与"知识/创意密集行业的技能互补效应更强"的理论预测一致。
+
+\subsubsection{方案C：新古典视角（\texttt{neoclassical}）}
+
+按资本/劳动密集度二分：capital\_intensive（金融、IT、能源）
+vs.\ labor\_intensive（批零、住餐、农林、建筑）。
+两组主题熵涨幅差异在$0.5\%$以内，无显著分化。
+
+\subsection{小结}
+
+\begin{enumerate}
+\item 标准20门类可用于固定效应控制和描述性分析；
+\item tech\_type与endogenous\_growth方案均显示\textbf{技术/知识密集型行业主题熵增长领先}；
+\item 各方案组间差异约1个百分点，绝对差距小但方向一致；
+\item 行业异质性将纳入回归分析中的行业固定效应及分组估计。
+\end{enumerate}
+
+
+% ===================================================================
+\section{问题三：AI暴露指标}
+\label{sec:ai_exposure}
+% ===================================================================
+
+\subsection{指标来源与设计逻辑}
+
+本研究采用国际劳工组织工作论文WP140（Gmyrek et al., 2025）提出的
+\textbf{AI暴露梯度框架}作为职业层面AI暴露度的外生来源。
+该框架基于大型语言模型对职业任务可自动化程度的评估，
+为ISCO-08四位码职业赋予0--1连续AI暴露分（$\mu$，$\sigma$），
+并将其离散化为四个暴露梯度：
+
+\begin{table}[h!]
+\centering
+\caption{ILO AI暴露梯度定义}
+\label{tab:ilo_gradients}
+\begin{tabular}{cll}
+\toprule
+梯度 & 名称 & 条件 \\
+\midrule
+G4 & 高度暴露 & $\mu \geq 0.6$ 且 $\mu - \sigma \geq 0.5$ \\
+G3 & 中高暴露 & $0.5 \leq \mu < 0.6$ 且 $\mu + \sigma \geq 0.5$ \\
+G2 & 低度暴露 & -- \\
+G1 & 最小暴露 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ILO框架另外定义了Minimal Exposure和Not Exposed两类，
+加上G1--G4共形成\textbf{六个梯度组}。
+本研究\textbf{不将梯度组二元化为处置/对照}，
+而是利用各组对应的连续AI暴露均分（$\mu$）
+作为异质性分析的梯度变量（见\S\ref{subsec:gradient_analysis}）。
+
+\subsection{职业匹配方法}
+
+原始招聘数据未直接提供ISCO-08编码。
+本研究构建了\textbf{关键词规则库}，将招聘标题和岗位名称中的
+职业关键词匹配至ISCO-08四位码。
+匹配统计如下：
+
+\begin{table}[h!]
+\centering
+\caption{职业匹配统计}
+\label{tab:match_stats}
+\begin{tabular}{lrr}
+\toprule
+匹配类型 & 条数 & 占比 \\
+\midrule
+keyword（成功匹配） & 5,413,851 & 69.5\% \\
+unknown（未匹配） & 2,367,295 & 30.4\% \\
+keyword\_noilo（无ILO评分） & 13,538 & 0.2\% \\
+\midrule
+总计 & 7,794,684 & 100.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{30.4\%的未匹配率}是本研究的主要数据局限之一。
+未匹配岗位以特殊行业职位（农业、政府、军事等）及新兴互联网职位名称为主，
+这些岗位在AI暴露分析中被排除，可能导致样本选择偏误。
+
+\subsection{连续梯度异质性分析}
+\label{subsec:gradient_analysis}
+
+研究的核心描述性问题是：\textbf{不同AI暴露水平的职业群体中，
+技能综合性上升速率是否存在差异？}
+这是一个异质性问题，不需要因果推断框架或时间断点选择。
+因此，本研究以AI暴露连续均分作为梯度变量，
+在全样本上分析各梯度组的技能综合性趋势。
+
+\subsubsection{各梯度组趋势描述}
+
+表~\ref{tab:gradient_summary}报告了六个AI暴露梯度组在2016--2024年间的主题熵变化。
+
+\begin{table}[h!]
+\centering
+\caption{各AI暴露梯度组主题熵变化（2016--2024）}
+\label{tab:gradient_summary}
+\small
+\begin{tabular}{llrrrrr}
+\toprule
+梯度组 & AI均分 & 样本量 & 2016年熵 & 2024年熵 & 变化量 & 斜率($\times 10^{-3}$/年) \\
+\midrule
+Not Exposed & 0.254 & 2,977,509 & 0.3925 & 0.4334 & +0.0409 & 5.67 \\
+Minimal & 0.361 & 817,617 & 0.3943 & 0.4318 & +0.0374 & 5.32 \\
+G1 & 0.351 & 163,352 & 0.3938 & 0.4346 & +0.0408 & 5.72 \\
+G2 & 0.452 & 1,740,398 & 0.3936 & 0.4346 & +0.0410 & 5.70 \\
+G3 & 0.560 & 1,322,186 & 0.3928 & 0.4352 & +0.0424 & 5.89 \\
+G4 & 0.616 & 733,640 & 0.3926 & 0.4316 & +0.0391 & 5.59 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+核心发现：
+\begin{itemize}
+\item \textbf{所有梯度组的主题熵均呈上升趋势}，
+      从2016年的$\sim$0.393上升至2024年的$\sim$0.434，
+      涨幅约$+10\%$；
+\item 各组趋势斜率极为接近（$5.32$--$5.89 \times 10^{-3}$/年），
+      组间差异在小数点后第3--4位，经济意义上\textbf{可忽略}；
+\item AI暴露程度最高的G3组斜率略高（$5.89\times 10^{-3}$），
+      但领先优势不足$0.6 \times 10^{-3}$/年。
+\end{itemize}
+
+图~\ref{fig:gradient_trend}展示了六条梯度组的主题熵年度趋势，
+图~\ref{fig:gradient_slopes}对比了各组的OLS趋势斜率。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{../output/gradient_analysis/gradient_trend.png}
+\caption{各AI暴露梯度组主题熵年度趋势（2016--2024）。
+         六组曲线高度重合，呈平行上升态势。}
+\label{fig:gradient_trend}
+\end{figure}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/gradient_analysis/gradient_slopes.png}
+\caption{各AI暴露梯度组主题熵趋势斜率对比。
+         所有组斜率均为正且量级接近，无明显分化。}
+\label{fig:gradient_slopes}
+\end{figure}
+
+\subsubsection{ISCO职业层面交互项回归}
+
+为正式检验"AI暴露程度是否预测差异化趋势"，
+将分析粒度从六个梯度组细化至\textbf{ISCO-08四位码职业$\times$年份}层面。
+使用v2数据（关键词+SBERT匹配，未匹配率5.6\%），
+聚合为304个ISCO职业$\times$10个年份（含2019--2020及2025）
+的\textbf{2,675个单元格}，
+涵盖7,359,590条招聘记录。
+每个ISCO职业拥有独立的连续AI暴露均分（49个唯一值，范围$[0.18, 0.70]$），
+避免了梯度组聚合导致的信息损失和离散化偏误。
+
+\paragraph{模型1：横截面关联（无职业固定效应）}
+\[
+\overline{\text{entropy}}_{ot} = \alpha + \sum_{t} \delta_t \cdot \mathbf{1}[\text{year}=t]
++ \beta \cdot \text{ai\_score}_o + \varepsilon_{ot}
+\]
+结果：$\hat{\beta} = +0.0009$，$p = 0.354$。
+AI暴露程度与主题熵\textbf{无截面关联}。
+
+\paragraph{模型2：年份$\times$AI暴露交互（无职业固定效应）}
+\[
+\overline{\text{entropy}}_{ot} = \alpha + \sum_{t} \delta_t + \beta \cdot \text{ai\_score}_o
++ \sum_{t} \gamma_t \cdot \mathbf{1}[\text{year}=t] \times \text{ai\_score}_o
++ \varepsilon_{ot}
+\]
+
+常规年份（2017--2018, 2021--2024）交互项均$|\hat{\gamma}_t| < 0.006$，
+$p$值最低为0.244（2024年）。
+2019--2020年因数据极少（样本空缺期），系数波动较大但置信区间极宽，均不显著。
+
+\paragraph{模型3：年份$\times$AI暴露 + 职业固定效应（核心规格）}
+\[
+\overline{\text{entropy}}_{ot} = \alpha_o + \sum_{t} \delta_t
++ \sum_{t} \gamma_t \cdot \mathbf{1}[\text{year}=t] \times \text{ai\_score}_o
++ \varepsilon_{ot}
+\]
+
+纳入304个ISCO职业固定效应后（吸收\texttt{ai\_score}主效应及所有时不变职业特征），
+关键结果如表~\ref{tab:isco_interactions}所示。
+
+\begin{table}[h!]
+\centering
+\caption{ISCO层面年份$\times$AI暴露交互项（模型3，含职业FE）}
+\label{tab:isco_interactions}
+\small
+\begin{tabular}{rrrr}
+\toprule
+年份 & $\hat{\gamma}_t$ & HC3 SE & $p$值 \\
+\midrule
+2017 & $+0.0015$ & 0.0039 & 0.702 \\
+2018 & $+0.0019$ & 0.0043 & 0.654 \\
+2019 & $+0.0270$ & 0.0280 & 0.336 \\
+2020 & $-0.0381$ & 0.0460 & 0.410 \\
+2021 & $+0.0012$ & 0.0037 & 0.750 \\
+2022 & $-0.0004$ & 0.0033 & 0.905 \\
+2023 & $+0.0004$ & 0.0037 & 0.903 \\
+2024 & $+0.0042$ & 0.0040 & 0.296 \\
+2025 & $+0.0018$ & 0.0247 & 0.943 \\
+\midrule
+\multicolumn{4}{l}{联合$F$检验（所有$\gamma_t = 0$）：
+$F(9, 2353) = 0.47$，$p = 0.894$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{所有交互项均不显著}，联合$F$检验$p = 0.894$，
+\textbf{无法拒绝"AI暴露不影响趋势斜率"的零假设}。
+图~\ref{fig:isco_interaction}展示了交互项系数及95\%置信区间。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/isco_regression/isco_interaction_m3.png}
+\caption{ISCO层面年份$\times$AI暴露交互项系数（模型3，含304个职业FE）。
+         联合$F$检验$p = 0.894$。
+         2019--2020年因数据极少而波动剧烈。}
+\label{fig:isco_interaction}
+\end{figure}
+
+\paragraph{模型4：简约线性交互}
+以连续年份$\times$AI暴露单一交互项替代年份哑变量交互：
+$\hat{\gamma} = +0.0002$，$p = 0.744$。
+\textbf{线性趋势中亦无AI暴露的差异化效应}。
+
+\paragraph{职业层面散点验证}
+图~\ref{fig:isco_scatter}以304个ISCO职业为单位，
+将每个职业的主题熵OLS趋势斜率对其AI暴露均分作散点图。
+WLS拟合线几乎水平（斜率$= 0.31$），
+Pearson相关系数$r = 0.055$，$p = 0.341$，
+\textbf{无任何线性关联}。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.9\textwidth]{../output/isco_regression/isco_slope_vs_ai.png}
+\caption{304个ISCO职业的主题熵趋势斜率 vs.\ AI暴露均分。
+         气泡大小正比于$\sqrt{n}$。
+         拟合线水平，$r = 0.055$（$p = 0.341$）。}
+\label{fig:isco_scatter}
+\end{figure}
+
+\subsubsection{JD级AI暴露分数：细粒度变异检验}
+\label{subsec:jd_ai_score}
+
+上述ISCO层面回归中，AI暴露分数仅有49个唯一值（每个ISCO职业一个固定值），
+这限制了统计功效。
+为获取更细粒度的变异，本研究构建了\textbf{JD级AI暴露分数}（\texttt{jd\_ai\_score}），
+利用每条招聘广告自身岗位名称的语义信息。
+
+\paragraph{方法}
+使用\texttt{BAAI/bge-large-zh-v1.5}（1024维中文SBERT）
+对2,812,572个唯一岗位名称和303个ISCO职业描述分别编码，
+计算余弦相似度后取top-5加权平均AI暴露分：
+\[
+\texttt{jd\_ai\_score}_i = \sum_{k=1}^{5} \frac{\text{sim}_{ik}}{\sum_{j=1}^{5}\text{sim}_{ij}}
+\cdot \text{ai\_mean\_score}_k
+\]
+其中$\text{sim}_{ik}$为岗位名称$i$与ISCO职业$k$的余弦相似度。
+
+\paragraph{方法论优势}
+\begin{itemize}
+\item \textbf{变异极大增加}：从49个唯一值（ISCO级）跃升至\textbf{365,472个唯一值}（JD级），
+      有效样本量从304个职业码提升至数百万个JD；
+\item \textbf{同ISCO内异质性}：同一ISCO码内不同JD可有不同ai\_score
+      （如"Java实习生"$\neq$"高级Java架构师"），
+      Within-ISCO变异占总变异的\textbf{33.7\%}；
+\item \textbf{内生性切断}：ai\_score来自岗位名称（短文本），
+      entropy来自JD正文（LDA），不同文本字段消除机械性相关。
+\end{itemize}
+
+\paragraph{ISCO级 vs.\ JD级描述统计}
+
+\begin{table}[h!]
+\centering
+\caption{ISCO级 vs.\ JD级AI暴露分数对比}
+\label{tab:isco_vs_jd}
+\small
+\begin{tabular}{lrr}
+\toprule
+指标 & ISCO级 & JD级 \\
+\midrule
+唯一值 & 49 & 365,472 \\
+均值 & 0.4420 & 0.4104 \\
+标准差 & 0.1170 & 0.0816 \\
+范围 & $[0.18, 0.70]$ & $[0.19, 0.65]$ \\
+相关系数 & \multicolumn{2}{c}{$r = 0.727$} \\
+\midrule
+\multicolumn{3}{l}{\textit{JD级变异分解}} \\
+\quad Between-ISCO std & \multicolumn{2}{c}{0.0784} \\
+\quad Within-ISCO std & \multicolumn{2}{c}{0.0399} \\
+\quad Within/Total ratio & \multicolumn{2}{c}{33.7\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+两者相关0.727，JD级分数保留了ISCO级的跨职业排序，
+同时增加了大量ISCO内部变异——正是用于检验异质性的理想情形。
+
+\paragraph{JD级回归结果}
+
+使用全量7,359,590条个体记录，运行三个规格：
+
+\begin{table}[h!]
+\centering
+\caption{JD级回归：年份$\times$\texttt{jd\_ai\_score}交互项（Post-2023）}
+\label{tab:jd_regression}
+\small
+\begin{tabular}{l rrr rrr rrr}
+\toprule
+& \multicolumn{3}{c}{Model 1 (HC1)} & \multicolumn{3}{c}{Model 2 (ISCO聚类)} & \multicolumn{3}{c}{Model 3 (ISCO FE+聚类)} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10}
+年份 & $\hat{\gamma}$ & SE & $p$ & $\hat{\gamma}$ & SE & $p$ & $\hat{\gamma}$ & SE & $p$ \\
+\midrule
+2023 & $-0.001$ & 0.005 & 0.875 & $-0.001$ & 0.005 & 0.880 & $-0.001$ & 0.005 & 0.828 \\
+2024 & $+0.008$ & 0.005 & 0.096 & $+0.008$ & 0.005 & 0.152 & $+0.007$ & 0.005 & 0.201 \\
+2025 & $-0.037$ & 0.037 & 0.319 & $-0.037$ & 0.037 & 0.321 & $-0.035$ & 0.036 & 0.341 \\
+\midrule
+\multicolumn{10}{l}{\textit{联合$F$检验（所有年份$\times$jd\_ai\_score = 0）}} \\
+$F$值 & \multicolumn{3}{c}{4.25} & \multicolumn{3}{c}{2.12} & \multicolumn{3}{c}{2.17} \\
+$p$值 & \multicolumn{3}{c}{$<0.001$} & \multicolumn{3}{c}{0.027} & \multicolumn{3}{c}{0.024} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{结果解读}
+
+联合$F$检验在Model 2--3中达到5\%显著（$p\approx 0.025$），
+但这一显著性\textbf{完全由2019年异常系数驱动}
+（$\hat{\gamma}_{2019} \approx +0.103$，$p=0.002$），
+反映的是数据断层期的样本选择效应，而非AI暴露的差异化作用。
+
+\textbf{Post-2023年份（核心关注期）所有交互项均不显著}：
+2023年$p>0.82$，2024年$p>0.15$（最高规格下$p=0.20$），
+2025年$p>0.32$。
+这意味着：即便将AI暴露变异从49个值扩展至365,472个值，
+并利用ISCO内部的细粒度变异，
+\textbf{仍无法检测到AI暴露程度对Post-2023技能综合性趋势的差异化影响}。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/jd_regression/isco_vs_jd_ai_score.png}
+\caption{ISCO级 vs.\ JD级AI暴露分数对比。
+         左：密度分布，JD级更为连续平滑；
+         右：散点图，$r=0.727$。}
+\label{fig:isco_vs_jd}
+\end{figure}
+
+
+\subsection{补充分析：DID框架}
+
+作为补充性因果推断尝试，本研究还将六个梯度组二元化为
+处置组（G3$\cup$G4）和对照组（Minimal$\cup$Not Exposed），
+以Post=2023（大模型在中国市场扩散时点）为时间断点，
+构建了DID回归框架。
+结果显示DID系数方向为正但在所有规格中均不显著
+（$\hat{\beta}\in[0.0004, 0.0021]$，$p>0.15$），
+与上述连续梯度分析的结论一致。
+DID的详细结果见问题四--六中各规格的报告。
+
+\subsection{补充分析：个体层面TWFE回归}
+\label{subsec:individual_twfe}
+
+作为最完整的个体层面检验，
+使用v2全量数据（7,359,590条个体记录）运行双向固定效应（TWFE）回归，
+通过Frisch-Waugh-Lovell定理吸收304个ISCO四位码固定效应，
+标准误聚类在ISCO层面。
+
+\paragraph{Model A：连续交互}
+\[
+\text{entropy}_i = \alpha_o + \sum_t \delta_t \cdot \mathbf{1}[\text{year}_i = t]
++ \sum_t \gamma_t \cdot \mathbf{1}[\text{year}_i = t] \times \text{ai\_score}_o
++ \varepsilon_i
+\]
+
+所有年份$\times$AI暴露交互项均不显著
+（Post-2023：$|\hat{\gamma}|<0.005$，$p>0.29$），
+联合$F$检验$F(9, 303) = 0.518$，$p = 0.861$。
+这与ISCO单元格层面回归（$p=0.894$）高度一致，
+\textbf{排除了聚合偏差的可能性}。
+
+\paragraph{Model B：二元DID}
+将梯度组二元化（处置=G3+G4，对照=Minimal+Not Exposed），
+Post$\geq$2023。
+在4,966,845条个体记录上估计DID系数：
+$\hat{\beta}_\text{DID} = +0.0007$，$\text{SE} = 0.0004$，$p = 0.113$，
+95\% CI $= [-0.0002, +0.0015]$。
+\textbf{效应为正但不显著}，与单元格层面DID结论一致。
+
+\paragraph{Model C：事件研究}
+以2022年为参照年，估计年份$\times$处置组交互系数。
+
+\begin{table}[h!]
+\centering
+\caption{个体层面事件研究系数（ISCO聚类标准误）}
+\label{tab:event_study_individual}
+\small
+\begin{tabular}{rrrl}
+\toprule
+年份 & $\hat{\beta}_t$ & $p$值 & 95\% CI \\
+\midrule
+2016 & $-0.0002$ & 0.831 & $[-0.0019, +0.0015]$ \\
+2017 & $+0.0001$ & 0.913 & $[-0.0014, +0.0016]$ \\
+2018 & $+0.0001$ & 0.923 & $[-0.0015, +0.0016]$ \\
+2021 & $+0.0000$ & 0.983 & $[-0.0010, +0.0011]$ \\
+\textbf{2022} & \multicolumn{3}{c}{（参照年）} \\
+2023 & $+0.0004$ & 0.503 & $[-0.0007, +0.0015]$ \\
+2024 & $+0.0011$ & 0.123 & $[-0.0003, +0.0025]$ \\
+2025 & $+0.0000$ & 0.994 & $[-0.0076, +0.0076]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+处置前系数均$\approx 0$（$|p|>0.83$），
+\textbf{平行趋势假设良好满足}。
+处置后系数方向为正但不显著，
+与单元格层面事件研究模式一致。
+图~\ref{fig:event_study_individual}展示了事件研究系数图。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/individual_twfe/event_study_isco_cluster.png}
+\caption{个体层面事件研究（ISCO聚类标准误，参照年=2022）。
+         处置前系数均$\approx 0$（平行趋势成立），
+         处置后系数为正但不显著。}
+\label{fig:event_study_individual}
+\end{figure}
+
+
+\subsection{小结}
+
+\begin{enumerate}
+\item AI暴露指标来自ILO WP140外部评分，避免内生性；
+\item 关键词+SBERT匹配覆盖94.4\%样本（v2），5.6\%未匹配；
+\item 六组梯度描述性趋势显示所有组平行上升
+      （斜率$5.32$--$5.89 \times 10^{-3}$/年）；
+\item ISCO职业层面回归（2,675个单元格，304个职业FE）
+      正式检验确认：年份$\times$AI暴露交互项\textbf{联合$F$检验$p = 0.894$}，
+      线性交互$p = 0.744$，职业散点相关$r = 0.055$（$p = 0.341$）——
+      三项检验一致表明\textbf{AI暴露不预测差异化趋势}；
+\item JD级回归（365,472个唯一值，7,359,590条个体记录）
+      将变异扩大7,000倍后，Post-2023交互项仍全部不显著（$p>0.15$），
+      排除了统计功效不足的解释；
+\item 个体层面TWFE回归（$N=7{,}359{,}590$）联合$F$检验$p=0.861$，
+      二元DID系数$+0.0007$（$p=0.113$），事件研究平行趋势成立；
+\item 补充性DID分析结果方向一致（效应为正但不显著）。
+\end{enumerate}
+
+
+% ===================================================================
+\section{问题四：字数控制}
+\label{sec:token_control}
+% ===================================================================
+
+\subsection{岗位描述字数的计算}
+
+在数据预处理阶段，对每条招聘广告的岗位描述字段执行以下步骤：
+\begin{enumerate}
+\item 使用jieba对岗位描述进行分词；
+\item 去除停用词（标准停用词表）；
+\item 过滤LDA词汇表之外的词汇；
+\item 统计剩余词元数量，记为\texttt{token\_count}。
+\end{enumerate}
+
+\texttt{token\_count}全程随岗位数据传递至DID回归阶段，
+在Spec~2中作为协变量加入单元格均值回归方程：
+\[
+\overline{y}_{gt} = \alpha + \beta \cdot \text{post}_t \times \text{treated}_g
++ \gamma \cdot \overline{\log(\text{token\_count})}_{gt}
++ \delta_g + \lambda_t + \varepsilon_{gt}
+\]
+
+\subsection{字数的时间演变}
+
+对字数进行全样本年度描述统计后，发现一个重要的结构性特征：
+
+\begin{table}[h!]
+\centering
+\caption{岗位描述字数（token\_count）年度均值}
+\label{tab:token_trend}
+\begin{tabular}{lrrr}
+\toprule
+年份 & token\_count均值 & unique\_tokens均值 & 备注 \\
+\midrule
+2016 & 14.4 & 14.0 & -- \\
+2017 & 14.2 & 13.8 & -- \\
+2018 & 14.6 & 14.2 & -- \\
+\midrule
+2021 & 21.0 & 19.7 & +44\%跳升（相对2018） \\
+2022 & 20.8 & 19.9 & -- \\
+2023 & 21.0 & 20.0 & -- \\
+2024 & 21.1 & 20.0 & -- \\
+2025 & 21.2 & 20.1 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{关键发现}：字数存在显著的结构性跳升，
+但这一跳升发生在\textbf{2018年至2021年之间}（样本空缺期，即2019--2020年）。
+在本研究关注的DID时间窗口（2021--2025）内，字数基本稳定在
+21个词元左右，无明显趋势性变化。
+
+\subsection{字数控制的估计影响}
+
+\begin{table}[h!]
+\centering
+\caption{加入字数控制前后DID系数比较}
+\label{tab:token_did}
+\begin{tabular}{lrrrl}
+\toprule
+规格 & $\hat{\beta}$ & SE & $p$值 & 备注 \\
+\midrule
+Spec~1（无字数控制） & 0.0012 & 0.0009 & 0.209 & 基准 \\
+Spec~2（加$\log$字数） & 0.0008 & 0.0005 & 0.152 & 系数衰减33\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+加入字数控制后，DID系数从0.0012降至0.0008（衰减约33\%），
+但两者均不显著（$p>0.15$）。
+系数衰减表明，部分主题熵上升确实与岗位描述更为详尽有关；
+但处置效应的方向未变，说明即便剔除字数因素，
+高AI暴露职业的技能综合性仍略高于低暴露职业。
+
+\paragraph{解读注意事项}
+由于字数在DID窗口内高度稳定，Spec~2中的$\gamma$估计
+主要捕捉截面差异（字数多的岗位主题熵更高），
+而非时序变化。字数控制在本研究中是稳健性验证，
+而非关键识别约束。
+
+\subsection{小结}
+
+\begin{enumerate}
+\item 字数控制（\texttt{log\_token\_count}）已纳入Spec~2；
+\item DID窗口内字数稳定，字数上升不是主题熵上升的主要解释；
+\item 控制字数后DID系数衰减33\%，仍不显著，结论稳健；
+\item 2018--2021年字数跳升发生在样本空缺期，无法检验。
+\end{enumerate}
+
+
+% ===================================================================
+\section{问题五：技能计数稳健性}
+\label{sec:skill_count}
+% ===================================================================
+
+\subsection{ESCO技能匹配（失败）}
+
+首先尝试使用欧盟ESCO（European Skills, Competences, Qualifications
+and Occupations）框架进行职业技能匹配。
+ESCO数据库收录了约13,800个技能和3,000个职业，
+理论上可提供各职业所需技能的标准化列表。
+
+然而，对前100万条招聘记录的检测显示：
+
+\begin{table}[h!]
+\centering
+\caption{ESCO技能匹配结果}
+\label{tab:esco_match}
+\begin{tabular}{lr}
+\toprule
+指标 & 数值 \\
+\midrule
+零匹配比例 & $\approx 97\%$ \\
+至少匹配1个技能的记录比例 & $\approx 3\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ESCO匹配率极低的原因包括：
+(i) ESCO主要覆盖欧洲职业市场，技能描述以英文和欧洲语言为主；
+(ii) 中文招聘广告中的技能描述与ESCO标准化表述差异极大；
+(iii) 直接词汇匹配（非语义匹配）在跨语言场景下效果极差。
+
+\textbf{结论：ESCO路径不可行，需要替代方案。}
+
+\subsection{词汇广度指标（unique\_tokens）}
+
+作为模型无关的替代技能计数，本研究构造了两个词汇广度指标：
+
+\subsubsection{Shannon词熵（word\_entropy）}
+
+对每条岗位描述计算归一化Shannon熵：
+\[
+H_i = -\sum_{w} p_{iw} \log p_{iw} / \log V_i
+\]
+其中$p_{iw}$为词$w$在岗位$i$中出现的频率，$V_i$为词汇量。
+
+然而，实证检验发现word\_entropy在各年份几乎均为\textbf{常数$\approx 0.997$}。
+这是因为招聘广告文本长度较短，基本不含重复词汇，
+每个词出现且仅出现一次，Shannon熵自然趋向最大值。
+词熵作为技能多样性指标在此语境下无效。
+
+\subsubsection{不重复词元数（unique\_tokens）}
+
+不重复词元数直接计数岗位描述中出现的不同词汇数量，
+不依赖词频分布，与token\_count的区别仅在于去重。
+
+年度均值（见表\ref{tab:token_trend}）显示：
+unique\_tokens与token\_count走势高度一致，
+同样存在2018$\to$2021的结构性跳升，DID窗口内稳定在$\approx 20$个词汇。
+
+\subsection{unique\_tokens的DID估计}
+
+以\texttt{unique\_tokens}（单元格均值）替代主题熵作为被解释变量，
+重新运行Spec~4：
+
+\begin{table}[h!]
+\centering
+\caption{unique\_tokens DID估计（Spec~4）}
+\label{tab:unique_tokens_did}
+\begin{tabular}{lrrrl}
+\toprule
+被解释变量 & $\hat{\beta}$ & SE & $p$值 & 结论 \\
+\midrule
+主题熵（基准） & 0.0012 & 0.0009 & 0.209 & 不显著 \\
+unique\_tokens（Spec~4） & 0.0014 & 0.0042 & 0.747 & 不显著 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+unique\_tokens的DID系数为0.0014，$p=0.747$，\textbf{完全不显著}。
+这意味着：AI暴露对岗位描述的词汇广度（以不重复词元数衡量）
+没有产生可辨别的效应。
+
+\subsection{对比解读：LDA vs. 词汇计数}
+
+LDA主题熵与unique\_tokens均无统计显著的AI处置效应，
+但两者在\textbf{效应方向和量级}上保持一致：
+
+\begin{itemize}
+\item 主题熵度量的是\textbf{主题空间}中的技能分布广度——
+  岗位要求的技能集合跨越了多少个语义不同的主题；
+\item unique\_tokens度量的是\textbf{词汇空间}中的广度——
+  岗位描述使用了多少个不同的词汇；
+\item 两者均显示高AI暴露职业在2023年后系数为正但不显著，
+  提示效应可能存在但统计功效不足，而非方向相反。
+\end{itemize}
+
+\textbf{稳健性结论}：
+LDA主题熵与词汇计数（unique\_tokens）给出方向一致的结果，
+提升了主要发现的可信度。即便使用不依赖LDA模型假设的简单词汇计数，
+结论也未发生根本性改变。
+
+\subsection{小结}
+
+\begin{enumerate}
+\item ESCO中文匹配率仅3\%，无法使用；
+\item word\_entropy因文本短、无重复词而恒近1，无效；
+\item unique\_tokens作为模型无关替代指标，DID结果$\beta=0.0014$, $p=0.747$；
+\item 主题熵与unique\_tokens方向一致，增强稳健性；
+\item 两个指标均不显著，提示效应弱或功效不足，非方向相反。
+\end{enumerate}
+
+
+% ===================================================================
+\section{问题六：样本缺失稳健性——SBERT语义匹配补全}
+\label{sec:sbert_robustness}
+% ===================================================================
+
+\subsection{问题背景}
+
+基于关键词规则的ISCO-08匹配存在\textbf{30.4\%的未匹配率}
+（2,367,295条记录无法归类至任何ISCO四位码），
+这被指出为本研究最严重的数据局限之一。
+未匹配岗位以非标准化名称为主（"AIGC运营"、"私域增长专员"等），
+可能系统性地排除了AI冲击影响最大的新兴岗位。
+该批评的核心关切在于：\textbf{样本缺失是否为系统性偏差？
+纳入缺失样本后DID估计量是否发生实质性变化？}
+
+\subsection{SBERT语义匹配方法}
+
+为弥补关键词规则的覆盖不足，本研究构建了基于
+Sentence-BERT语义相似度的职业匹配管道：
+
+\paragraph{(1) 中文ISCO职业名称库}
+手工翻译303个ISCO-08四位码职业的中文主名及常见别名，
+形成结构化名称文件
+（例：1211~财务经理~$\to$~财务总监/CFO/财务负责人/财务主管）。
+
+\paragraph{(2) 语义编码与匹配}
+使用\texttt{BAAI/bge-large-zh-v1.5}模型
+（中文专用Sentence-BERT，1024维向量）
+对303个ISCO职业查询串（主名+别名拼接）和
+1,031,237个唯一未匹配岗位名分别编码，
+计算余弦相似度并取最近邻。
+相似度$\geq 0.55$则接受匹配，否则保留unknown。
+
+\paragraph{(3) 匹配结果}
+
+\begin{table}[h!]
+\centering
+\caption{SBERT语义匹配统计}
+\label{tab:sbert_match}
+\begin{tabular}{lrr}
+\toprule
+指标 & 数值 & 备注 \\
+\midrule
+唯一未匹配岗位名 & 1,031,237 & v1中method=unknown的去重岗位名 \\
+SBERT接受（$\text{sim}\geq 0.55$） & 713,865 & 接受率69.2\% \\
+SBERT拒绝（$\text{sim}<0.55$） & 317,372 & 保留unknown \\
+\midrule
+接受匹配的平均相似度 & 0.627 & 中位数0.617 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{匹配质量示例}
+高置信度匹配：法律顾问$\to$2611~Lawyers（0.817）、
+园林景观工程师$\to$2162~Landscape Architects（0.812）、
+餐厅经理$\to$1412~Restaurant Managers（0.871）。
+阈值附近匹配：精装工程师$\to$3432~Interior Designers（0.583）、
+实习生$\to$4110~General Office Clerks（0.589）。
+
+\subsection{覆盖率改善}
+
+\begin{table}[h!]
+\centering
+\caption{v1 vs v2 职业匹配覆盖率对比}
+\label{tab:v1v2_coverage}
+\begin{tabular}{lrr}
+\toprule
+指标 & v1（关键词） & v2（关键词+SBERT） \\
+\midrule
+总记录数 & 7,794,684 & 7,794,684 \\
+关键词匹配 & 5,413,851 (69.5\%) & 5,413,851 (69.5\%) \\
+SBERT匹配 & -- & 1,932,201 (24.8\%) \\
+未匹配 & \textbf{2,367,295 (30.4\%)} & \textbf{435,094 (5.6\%)} \\
+\midrule
+DID可用样本（高+低暴露） & 3,508,319 & 4,957,520 \\
+样本增幅 & -- & $+41.3\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+各年份未匹配率从v1的26--33\%统一下降至v2的4--8\%，
+且\textbf{年份间未匹配率差异大幅缩小}
+（v1中2022年32.6\% vs.\ 2016年26.1\%的系统性差异在v2中基本消除），
+降低了因差异化缺失率造成的年份间系统偏差风险。
+
+\subsection{新增样本的构成特征}
+
+SBERT新匹配的1,449,201条DID可用记录
+（即归入高暴露或低暴露梯度的记录）呈现以下结构性特征：
+
+\begin{table}[h!]
+\centering
+\caption{关键词匹配 vs.\ SBERT匹配样本构成对比}
+\label{tab:composition}
+\begin{tabular}{lrr}
+\toprule
+特征 & 关键词匹配 & SBERT匹配 \\
+\midrule
+记录数 & 3,508,319 & 1,449,201 \\
+处置组比例（Treated） & 58.7\% & \textbf{20.9\%} \\
+平均主题熵 & 0.4190 & 0.4206 \\
+平均log(token\_count) & 2.747 & 2.758 \\
+\midrule
+\multicolumn{3}{l}{\textit{AI暴露梯度分布}} \\
+\quad Gradient 3+4（处置组） & 58.7\% & 20.9\% \\
+\quad Minimal+Not Exposed（控制组） & 41.3\% & \textbf{79.1\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{关键发现}：SBERT新增记录中\textbf{绝大多数为控制组}（79.1\%），
+验证了批评者的判断——先前未匹配的岗位确实以低AI暴露职业为主
+（传统服务业、制造业中的非标准岗位名称）。
+纳入后，DID的处置/控制组比例从58.7\%/41.3\%调整为47.7\%/52.3\%，
+\textbf{更加均衡}。
+
+\subsection{v2数据的DID回归结果}
+
+使用v2数据重新运行全部5个DID规格：
+
+\begin{table}[h!]
+\centering
+\caption{DID估计量：v1 vs.\ v2 对比}
+\label{tab:did_v1v2}
+\begin{tabular}{l rrr c rrr r}
+\toprule
+& \multicolumn{3}{c}{v1（$N=3{,}508{,}319$）} && \multicolumn{3}{c}{v2（$N=4{,}957{,}520$）} & \\
+\cmidrule{2-4} \cmidrule{6-8}
+Spec & $\hat{\beta}$ & SE & $p$ && $\hat{\beta}$ & SE & $p$ & $\Delta\beta$ \\
+\midrule
+1. WLS基线 & 0.0012 & 0.0009 & 0.209 && 0.0008 & 0.0008 & 0.327 & $-0.0004$ \\
+2. +log(tokens) & 0.0008 & 0.0005 & 0.152 && 0.0004 & 0.0004 & 0.353 & $-0.0004$ \\
+3. $-$HHI & 0.0013 & 0.0012 & 0.275 && 0.0008 & 0.0009 & 0.373 & $-0.0005$ \\
+4. unique\_tokens & 0.0014 & 0.0042 & 0.747 && 0.0021 & 0.0042 & 0.614 & $+0.0007$ \\
+5. TWFE(500k) & 0.0014 & 0.0006 & \textbf{0.021} && 0.0019 & 0.0011 & 0.080 & $+0.0004$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{结果解读}
+
+\begin{enumerate}
+\item \textbf{Spec 1--3}（WLS）：系数均\textbf{缩小约33\%}，
+      $p$值进一步远离显著水平。
+      这是因为SBERT新增的大量控制组样本拉平了组间差异。
+\item \textbf{Spec 5}（TWFE）：v1中唯一达到5\%显著的结果
+      （$p=0.021$）在v2中升至$p=0.080$，
+      \textbf{丢失了5\%水平的统计显著性}，
+      仅在10\%边际水平下勉强显著。
+\item \textbf{所有规格中$\hat{\beta}$均为正}：
+      效应方向一致，但量级微弱（$\hat{\beta}\in[0.0004, 0.0021]$），
+      经济意义上可忽略。
+\end{enumerate}
+
+\subsection{v2数据的事件研究}
+
+\begin{table}[h!]
+\centering
+\caption{事件研究系数：v1 vs.\ v2}
+\label{tab:event_study_v1v2}
+\begin{tabular}{r rr c rr r}
+\toprule
+& \multicolumn{2}{c}{v1} && \multicolumn{2}{c}{v2} & \\
+\cmidrule{2-3} \cmidrule{5-6}
+Year & $\hat{\beta}_t$ & $p$ && $\hat{\beta}_t$ & $p$ & $\Delta\beta_t$ \\
+\midrule
+2016 & $-0.0017$ & 0.263 && $-0.0002$ & 0.878 & $+0.0015$ \\
+2017 & $-0.0003$ & 0.857 && $+0.0000$ & 0.975 & $+0.0004$ \\
+2018 & $+0.0003$ & 0.929 && $+0.0001$ & 0.979 & $-0.0002$ \\
+2021 & $+0.0000$ & 0.987 && $+0.0000$ & 0.989 & $-0.0000$ \\
+2022 & \multicolumn{2}{c}{(ref)} && \multicolumn{2}{c}{(ref)} & -- \\
+2023$^\ast$ & $+0.0006$ & 0.591 && $+0.0004$ & 0.751 & $-0.0002$ \\
+2024$^\ast$ & $+0.0015$ & 0.451 && $+0.0012$ & 0.430 & $-0.0003$ \\
+2025$^\ast$ & $+0.0024$ & 0.928 && $+0.0009$ & 0.853 & $-0.0015$ \\
+\bottomrule
+\multicolumn{7}{l}{\footnotesize $^\ast$处置后年份。参照年=2022。} \\
+\end{tabular}
+\end{table}
+
+v2事件研究中，处置前系数更加接近零（所有$p>0.87$），
+\textbf{平行趋势假设在更完整样本下更好地得到满足}。
+处置后系数仍为正但量级更小，均远未达到统计显著。
+
+\subsection{小结}
+
+\begin{enumerate}
+\item SBERT语义匹配将未匹配率从30.4\%降至\textbf{5.6\%}，
+      DID可用样本增加41.3\%，有效回应了系统性缺失批评；
+\item 新增样本以控制组为主（79.1\%），
+      证实先前缺失确为系统性偏差（低暴露职业被过度排除）；
+\item 纳入后DID系数\textbf{方向不变但进一步缩小}，
+      v1中唯一显著的TWFE结果（$p=0.021$）在v2中升至$p=0.080$；
+\item 事件研究中平行趋势在v2下更为平稳，
+      但处置后效应同样更弱；
+\item \textbf{总体判断}：更完整的样本巩固了描述性趋势的稳健性
+      （所有$\beta>0$），但进一步证实AI暴露的差异化效应
+      在统计和经济意义上均不显著，
+      应以描述性发现而非因果效应的方式呈现。
+\end{enumerate}
+
+
+% ===================================================================
+\section{问题七：主题数K的选择与敏感性}
+\label{sec:k_robustness}
+% ===================================================================
+
+\subsection{问题背景}
+
+主题模型的核心超参数$K=50$缺乏任何验证，
+没有困惑度曲线、主题一致性评估，也没有K值敏感性分析。
+如果换用不同的K值，趋势性结论是否依然成立？
+这一问题的严重性在于：若主要发现依赖于特定K值选择，则结论不具备稳健性。
+
+\subsection{K值的科学选择}
+
+\paragraph{方法}
+在$K \in \{20, 30, 40, 50, 60, 70, 80, 100\}$共8个候选值上，
+使用与主分析完全相同的tomotopy框架和参数设置
+（10\%采样率，\texttt{min\_cf}$=10$，\texttt{rm\_top}$=15$，1000轮迭代，种子$=42$），
+分别训练LDA模型。$K=50$直接复用主分析中已训练的模型。
+
+对每个模型计算三项指标：
+\begin{itemize}
+\item \textbf{主题一致性C$_\text{V}$}（Röder et al., 2015）：
+      基于滑动窗口共现和NPMI的语义一致性度量，值越高越好；
+\item \textbf{主题一致性U$_\text{Mass}$}（Mimno et al., 2011）：
+      基于文档内共现的一致性度量，值越接近0越好；
+\item \textbf{Log-likelihood per word}：模型拟合度的内部评估。
+\end{itemize}
+
+一致性计算通过gensim的\texttt{CoherenceModel}完成，
+参考文本为训练语料的采样子集（$n=100{,}000$篇文档），
+每个主题取前20个高概率词。
+
+\paragraph{结果}
+
+\begin{table}[h!]
+\centering
+\caption{不同K值下的模型评估指标}
+\label{tab:k_metrics}
+\small
+\begin{tabular}{rcccc}
+\toprule
+$K$ & C$_\text{V}$ & U$_\text{Mass}$ & LL/word & 训练时间(min) \\
+\midrule
+20  & 0.5751 & $-4.27$ & $-9.737$ & 10.6 \\
+30  & 0.5904 & $-4.37$ & $-9.669$ & 13.3 \\
+40  & 0.5882 & $-4.57$ & $-9.617$ & 17.4 \\
+\textbf{50}  & \textbf{0.5970} & $-4.62$ & $-9.576$ & 0.6\textsuperscript{*} \\
+60  & 0.5798 & $-4.88$ & $-9.571$ & 18.1 \\
+70  & 0.5879 & $-4.81$ & $-9.551$ & 24.4 \\
+80  & 0.5927 & $-4.84$ & $-9.527$ & 27.2 \\
+100 & 0.5574 & $-5.51$ & $-9.526$ & 33.3 \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+{\footnotesize *$K=50$复用已训练模型，仅需计算一致性。}
+\end{table}
+
+如表~\ref{tab:k_metrics}所示：
+\begin{itemize}
+\item C$_\text{V}$一致性在$K=50$处取得\textbf{全局最大值}（0.597），
+      其次为$K=80$（0.593）和$K=30$（0.590）；
+\item U$_\text{Mass}$随K单调下降（$K=20$时最优$-4.27$），这符合文献中的已知模式
+      （K越大，低频主题的共现稀疏导致U$_\text{Mass}$恶化）；
+\item LL/word随K单调改善，但在$K \geq 60$后趋于平坦，
+      边际收益递减明显。
+\end{itemize}
+
+综合C$_\text{V}$和LL/word的拐点分析，$K=50$处于
+\textbf{语义一致性最优}且\textbf{模型拟合充分}的交叉点，
+确认了原始选择的合理性。
+图~\ref{fig:k_coherence}展示了三项指标随K的变化趋势。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{../output/k_robustness/k_coherence.png}
+\caption{K值选择：主题一致性与模型拟合度。
+         红色虚线标注各指标的最优K值。
+         C$_\text{V}$在$K=50$处达到峰值。}
+\label{fig:k_coherence}
+\end{figure}
+
+\subsection{K值敏感性分析：趋势稳健性}
+
+\paragraph{方法}
+为验证核心趋势性发现不依赖于特定K选择，
+对8个K值的模型分别进行全量语料推断（约800万条职位描述），
+使用与主分析相同的解析法folding-in方法。
+
+关键设计：为使不同K下的熵值可比，
+使用归一化熵$H_\text{norm} = -\sum_k p_k \log p_k / \log K$，
+范围固定为$[0,1]$，消除了K对熵天花板的机械影响。
+排除数据断层年份（2019--2020）。
+
+\paragraph{趋势叠加结果}
+
+图~\ref{fig:k_trend}展示了8条归一化熵年度趋势。
+核心发现：
+
+\begin{itemize}
+\item \textbf{所有K值下趋势方向一致}：归一化熵在2016--2024年间均呈上升趋势，
+      无论K取20还是100；
+\item 各曲线的绝对水平和斜率有所差异，但\textbf{不存在方向反转}；
+\item 2019--2020年数据断层后的恢复模式在所有K下一致。
+\end{itemize}
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=\textwidth]{../output/k_robustness/k_sensitivity_trend.png}
+\caption{不同K值下归一化熵的年度趋势叠加。
+         灰色阴影为2019--2020数据断层。
+         所有K值下趋势方向一致向上。}
+\label{fig:k_trend}
+\end{figure}
+
+\paragraph{斜率敏感性}
+
+图~\ref{fig:k_slope}报告了各K值下归一化熵对年份的OLS回归斜率$\beta$
+（排除2019--2020后的线性趋势）。
+红色标注$K=50$（主分析使用的值）。
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../output/k_robustness/k_sensitivity_slope.png}
+\caption{归一化熵趋势斜率对K的敏感性。
+         所有K值的斜率均为正，
+         证实上升趋势不依赖于K的选择。}
+\label{fig:k_slope}
+\end{figure}
+
+\subsection{小结}
+
+\begin{enumerate}
+\item 在8个候选K值中，C$_\text{V}$主题一致性在$K=50$处取得最大值（0.597），
+      \textbf{事后验证了原始K选择的最优性}；
+\item Log-likelihood在$K \geq 60$后边际改善趋于平坦，
+      $K=50$处于拟合充分区间；
+\item 归一化熵在\textbf{所有}K$\in\{20,\ldots,100\}$下均呈上升趋势，
+      核心描述性发现（技能综合性随时间提高）不依赖于K的选择；
+\item 趋势斜率在各K值间方向一致，数量级稳定，
+      $K=50$不是极端值。
+\end{enumerate}
+
+
+% ===================================================================
+\section{综合评估}
+\label{sec:summary}
+% ===================================================================
+
+\begin{table}[h!]
+\centering
+\caption{六个方法论问题综合评估}
+\label{tab:summary}
+\small
+\begin{tabular}{p{2.2cm}p{3.8cm}p{4cm}p{3cm}}
+\toprule
+问题 & 处理方案 & 主要发现 & 局限 \\
+\midrule
+行业分类 &
+标准20门类 + tech\_type / endogenous\_growth / neoclassical三套方案 &
+技术/知识密集型行业主题熵涨幅领先（约$+1\%$） &
+样本量差异大；新兴行业定义主观 \\[6pt]
+
+AI暴露指标 &
+ILO WP140连续AI均分；
+ISCO$\times$年份2,675单元格WLS（304职业FE）；
+JD级SBERT编码（365K唯一值）；
+个体TWFE（$N$=7.4M） &
+ISCO层面联合$F$ $p=0.894$；
+JD级Post-2023交互$p>0.15$；
+个体TWFE联合$F$ $p=0.861$；
+二元DID $p=0.113$ &
+JD级ai\_score构建依赖SBERT语义匹配质量 \\[6pt]
+
+字数控制 &
+jieba分词后的\texttt{log\_token\_count}纳入Spec~2 &
+DID系数衰减33\%但仍不显著；
+字数在DID窗口内稳定 &
+2018--2021跳升无法检验；
+截面vs.时序混淆 \\[6pt]
+
+技能计数稳健性 &
+尝试ESCO（失败）；
+使用unique\_tokens替代 &
+$\beta=0.0014$, $p=0.747$；
+与主题熵方向一致 &
+非正式技能计数；
+词汇层面 vs.\ 语义层面 \\[6pt]
+
+样本缺失稳健性 &
+SBERT（bge-large-zh）语义匹配；未匹配率30.4\%$\to$5.6\% &
+DID样本$+41.3\%$；系数缩小$\sim$33\%；
+TWFE $p$: 0.021$\to$0.080 &
+阈值选择（0.55）主观；
+语义匹配噪声不可控 \\[6pt]
+
+K值稳健性 &
+C$_\text{V}$/U$_\text{Mass}$ coherence +
+K$\in\{20\ldots100\}$敏感性 &
+C$_\text{V}$在K=50最优；
+所有K下趋势方向一致 &
+仅测试8个K值；
+采样率10\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{总体判断}
+六个方法论问题均已得到\textbf{可操作的处理方案}，
+但各方案均存在可识别的局限性。
+
+核心发现可概括为两点：
+\begin{enumerate}
+\item \textbf{技能综合性逐年提高是普遍性趋势}：
+      所有AI暴露梯度组的主题熵在2016--2024年间均呈上升趋势
+      （斜率$5.32$--$5.89 \times 10^{-3}$/年），
+      该趋势在$K\in\{20,\ldots,100\}$下全部成立，
+      具有\textbf{跨K值的稳健性}；
+\item \textbf{AI暴露不预测差异化趋势}：
+      本研究在三个分析层面（单元格、JD级、个体）、
+      两种AI暴露度量（ISCO级49值、JD级365K值）、
+      多种估计方法（WLS、OLS+FWL、二元DID、事件研究）
+      下系统检验了年份$\times$AI暴露交互项。
+      全部结果一致：
+      ISCO单元格联合$F$检验$p = 0.894$，
+      JD级Post-2023交互$p>0.15$，
+      个体TWFE联合$F$检验$p = 0.861$，
+      二元DID $p = 0.113$，
+      事件研究平行趋势成立——
+      差异化效应在统计和经济意义上均不显著。
+\end{enumerate}
+本研究应以描述性趋势发现（技能综合性普遍上升）为主要贡献，
+AI暴露的异质性分析为辅助参考。
+
+% ===================================================================
+\appendix
+\section{数据文件索引}
+\label{sec:data_files}
+% ===================================================================
+
+\begin{table}[h!]
+\centering
+\caption{主要数据文件}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{7cm}p{3cm}r}
+\toprule
+文件路径 & 内容 & 行数 \\
+\midrule
+\path{data/Heterogeneity/master_with_ai_exposure.csv} &
+v1主数据（关键词匹配） & 7,794,684 \\
+\path{data/Heterogeneity/master_with_ai_exposure_v2.csv} &
+v2主数据（+SBERT匹配） & 7,794,684 \\
+\path{data/Heterogeneity/sbert_isco_lookup.csv} &
+SBERT匹配查找表 & 1,031,237 \\
+\path{data/esco/isco08_zh_names.csv} &
+ISCO-08中文职业名称 & 303 \\
+\path{data/Heterogeneity/word_entropy_by_id.csv} &
+词熵与unique\_tokens & 7,794,685 \\
+\path{data/Heterogeneity/did_results/} &
+v1 DID结果 & -- \\
+\path{data/Heterogeneity/did_results_v2/} &
+v2 DID结果 & -- \\
+\path{output/k_robustness/k_metrics.csv} &
+K值选择指标汇总 & 9 \\
+\path{output/k_robustness/yearly_entropy_by_k.csv} &
+多K年度归一化熵 & -- \\
+\path{output/k_robustness/lda_k*.bin} &
+8个K值LDA模型 & -- \\
+\midrule
+\path{data/Heterogeneity/yearly_ai_exposure_entropy.csv} &
+梯度组$\times$年份聚合数据 & 60 \\
+\path{output/gradient_analysis/regression_results.txt} &
+梯度交互回归结果 & -- \\
+\path{output/gradient_analysis/gradient_summary.csv} &
+梯度组趋势汇总 & 7 \\
+\path{output/isco_regression/isco_year_cells.csv} &
+ISCO$\times$年份聚合数据 & 2,675 \\
+\path{output/isco_regression/regression_results.txt} &
+ISCO层面回归结果 & -- \\
+\midrule
+\path{data/Heterogeneity/jd_ai_score_lookup.csv} &
+JD级AI暴露分数查找表 & 2,812,572 \\
+\path{data/Heterogeneity/master_with_jd_ai_score.csv} &
+v2+JD级AI分数主数据 & 7,794,684 \\
+\path{output/jd_regression/} &
+JD级回归结果 & -- \\
+\path{output/individual_twfe/} &
+个体TWFE回归结果 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

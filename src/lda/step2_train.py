@@ -5,12 +5,18 @@
 Step 2: Train Global LDA (tomotopy)
 读取 processed_corpus.jsonl -> 训练 Global LDA -> 保存模型
 
-输出：global_lda.bin
+用法：
+  python step2_train.py          # 默认 K=100
+  python step2_train.py --k 50   # 指定 K
+  python step2_train.py --k 150
+
+输出：output/global_lda_k{K}.bin
 """
 
 from __future__ import annotations
 from typing import Generator, List
 from pathlib import Path
+import argparse
 import json
 import logging
 import random
@@ -21,12 +27,12 @@ from tqdm import tqdm
 
 
 # =========================
-# Config
+# 路径配置
 # =========================
-INPUT_JSONL = Path("/Users/yu/code/code2601/TY/output/processed_corpus.jsonl")
-OUTPUT_MODEL = Path("/Users/yu/code/code2601/TY/output/global_lda.bin")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # -> TY/
 
-K = 50
+INPUT_JSONL = PROJECT_ROOT / "output/processed_corpus.jsonl"
+
 MIN_CF = 50               # 从10提升到50，过滤极低频噪声词
 RM_TOP = 50               # 从15提升到50，移除更多全局高频泛化词
 ITERATIONS = 500
@@ -66,13 +72,20 @@ def iter_docs(jsonl_path: Path) -> Generator[List[str], None, None]:
 # Main
 # =========================
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Train Global LDA")
+    parser.add_argument("--k", type=int, default=100, help="主题数K (default: 100)")
+    args = parser.parse_args()
+    K = args.k
+
+    OUTPUT_MODEL = PROJECT_ROOT / f"output/global_lda_k{K}.bin"
+
     t0 = time.time()
     if not INPUT_JSONL.exists():
         logger.error(f"找不到输入文件: {INPUT_JSONL}")
         return
 
     # Reservoir sampling: 流式读取，内存只保留 SAMPLE_SIZE 篇
-    logger.info(f"Reservoir sampling {SAMPLE_SIZE} 篇文档...")
+    logger.info(f"Reservoir sampling {SAMPLE_SIZE} 篇文档 (K={K})...")
     random.seed(RANDOM_SEED)
     sampled: List[List[str]] = []
     total = 0
@@ -93,7 +106,7 @@ def main() -> None:
         model.add_doc(tokens)
     del sampled
 
-    logger.info("开始训练 LDA ...")
+    logger.info(f"开始训练 LDA (K={K}, iterations={ITERATIONS}) ...")
     with tqdm(total=ITERATIONS, desc="LDA Training") as pbar:
         for i in range(0, ITERATIONS, LOG_EVERY):
             step = min(LOG_EVERY, ITERATIONS - i)
@@ -104,6 +117,16 @@ def main() -> None:
     OUTPUT_MODEL.parent.mkdir(parents=True, exist_ok=True)
     model.save(str(OUTPUT_MODEL))
     logger.info(f"模型已保存: {OUTPUT_MODEL}")
+
+    # 打印每个主题的 top-20 关键词，方便快速审查
+    logger.info(f"\n{'='*60}")
+    logger.info(f"主题关键词 (K={K}, top-20)")
+    logger.info(f"{'='*60}")
+    for k in range(K):
+        words = model.get_topic_words(k, top_n=20)
+        word_str = " | ".join([f"{w}({p:.3f})" for w, p in words])
+        print(f"  Topic {k:>3d}: {word_str}")
+
     logger.info(f"总耗时: {(time.time() - t0) / 60:.1f} 分钟")
 
 

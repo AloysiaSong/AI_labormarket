@@ -3,14 +3,14 @@
 
 """
 Step 1: Preprocess -> JSONL
-读取原始 CSV（流式） -> 清洗 -> jieba 分词 -> 短语识别（可选） -> 输出 JSONL
+读取 skill_filtered_corpus.csv（step0产出） -> 清洗 -> jieba 分词 -> 短语识别（可选） -> 输出 JSONL
 
-输出：processed_corpus.jsonl（每行包含 id, year, tokens）
+输入：output/skill_filtered_corpus.csv（has_skill_text=1 的行）
+输出：output/processed_corpus.jsonl（每行包含 id, year, tokens）
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Generator, Iterable, List, Optional
+from typing import Generator, List
 from pathlib import Path
 import csv
 import json
@@ -22,25 +22,26 @@ from collections import Counter
 import jieba
 from tqdm import tqdm
 
+# =========================
+# 路径配置（相对路径，本地/服务器通用）
+# =========================
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # -> TY/
+
+ESCO_DICT_PATH = PROJECT_ROOT / "data/esco/jieba_dict/esco_jieba_dict.txt"
+INPUT_CSV = PROJECT_ROOT / "output/skill_filtered_corpus.csv"
+OUTPUT_JSONL = PROJECT_ROOT / "output/processed_corpus.jsonl"
+
 # 加载ESCO领域词典（招聘/技能/职业术语）
-ESCO_DICT_PATH = Path("/Users/yu/code/code2601/TY/data/esco/jieba_dict/esco_jieba_dict.txt")
 if ESCO_DICT_PATH.exists():
     jieba.load_userdict(str(ESCO_DICT_PATH))
-    print(f"✅ 已加载ESCO自定义词典: {ESCO_DICT_PATH}")
+    print(f"已加载ESCO自定义词典: {ESCO_DICT_PATH}")
 else:
-    print(f"⚠️ ESCO词典不存在: {ESCO_DICT_PATH}")
+    print(f"ESCO词典不存在: {ESCO_DICT_PATH}")
 
 
 # =========================
 # Config
 # =========================
-INPUT_DIR = Path("/Users/yu/code/code2601/TY/data/processed/windows")  # CSV根目录（只匹配 window_YYYY_YYYY.csv）
-OUTPUT_JSONL = Path("/Users/yu/code/code2601/TY/output/processed_corpus.jsonl")
-
-ID_COLS = ["id", "ID", "jd_id", "职位ID", "岗位ID"]
-YEAR_COLS = ["year", "年份", "招聘发布年份", "发布年份"]
-TEXT_COLS = ["cleaned_requirements", "职位描述", "岗位描述", "要求", "职责"]
-
 MIN_TOKENS = 5
 
 # Bigram (optional)
@@ -97,14 +98,6 @@ logger = logging.getLogger("Step1-Preprocess")
 # =========================
 # Utilities
 # =========================
-def find_first_existing(fields: List[str], header: List[str]) -> Optional[str]:
-    header_set = set(header)
-    for f in fields:
-        if f in header_set:
-            return f
-    return None
-
-
 def clean_text(text: str) -> str:
     if not text:
         return ""
@@ -168,49 +161,31 @@ def apply_bigrams(tokens: List[str], bigrams: set) -> List[str]:
 
 
 # =========================
-# Streaming
+# Streaming: 读取 skill_filtered_corpus.csv
 # =========================
-@dataclass
 class JDRow:
-    jid: str
-    year: str
-    text: str
+    __slots__ = ("jid", "year", "text")
+    def __init__(self, jid: str, year: str, text: str):
+        self.jid = jid
+        self.year = year
+        self.text = text
 
 
-class DataStreamer:
-    def __init__(self, root_dir: Path):
-        self.root_dir = root_dir
-
-    def iter_rows(self) -> Generator[JDRow, None, None]:
-        pattern = re.compile(r"^window_\d{4}_\d{4}\.csv$")
-        files = [f for f in self.root_dir.rglob("*.csv") if pattern.match(f.name)]
-        logger.info(f"发现CSV文件: {len(files)} 个")
-        for f in files:
-            try:
-                with f.open("r", encoding="utf-8-sig", errors="replace", newline="") as fh:
-                    reader = csv.DictReader(fh)
-                    if reader.fieldnames is None:
-                        logger.warning(f"跳过空文件: {f}")
-                        continue
-                    id_col = find_first_existing(ID_COLS, reader.fieldnames)
-                    year_col = find_first_existing(YEAR_COLS, reader.fieldnames)
-                    text_col = find_first_existing(TEXT_COLS, reader.fieldnames)
-                    if not year_col or not text_col:
-                        logger.warning(f"缺少关键列，跳过: {f.name}")
-                        continue
-                    for row in reader:
-                        try:
-                            jid = row.get(id_col, "") if id_col else ""
-                            year = row.get(year_col, "")
-                            text = row.get(text_col, "")
-                            if not text or not year:
-                                continue
-                            yield JDRow(jid=jid, year=str(year), text=text)
-                        except Exception:
-                            logger.warning(f"跳过损坏行: {f.name}")
-                            continue
-            except Exception as e:
-                logger.warning(f"读取失败: {f} - {e}")
+def iter_rows(csv_path: Path) -> Generator[JDRow, None, None]:
+    """流式读取 skill_filtered_corpus.csv，只返回 has_skill_text=1 的行"""
+    with csv_path.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            if row.get("has_skill_text") != "1":
+                continue
+            text = row.get("skill_text", "")
+            if not text:
+                continue
+            yield JDRow(
+                jid=row.get("job_id", ""),
+                year=row.get("year", ""),
+                text=text,
+            )
 
 
 # =========================
@@ -243,13 +218,16 @@ class BigramDetector:
 def main() -> None:
     t0 = time.time()
     stopwords = set(DEFAULT_STOPWORDS)
-    streamer = DataStreamer(INPUT_DIR)
+
+    if not INPUT_CSV.exists():
+        logger.error(f"找不到输入文件: {INPUT_CSV}")
+        return
 
     bigrams = None
     if ENABLE_BIGRAMS:
         logger.info("Pass 1: 构建短语（二元组）...")
         detector = BigramDetector(BIGRAM_MIN_COUNT, BIGRAM_MAX_PAIRS)
-        for row in tqdm(streamer.iter_rows(), desc="Bigram Pass"):
+        for row in tqdm(iter_rows(INPUT_CSV), desc="Bigram Pass"):
             tokens = tokenize(row.text, stopwords)
             if len(tokens) >= MIN_TOKENS:
                 detector.add_doc(tokens)
@@ -258,9 +236,10 @@ def main() -> None:
 
     logger.info("Pass 2: 输出 JSONL ...")
     OUTPUT_JSONL.parent.mkdir(parents=True, exist_ok=True)
+    total_written = 0
     with OUTPUT_JSONL.open("w", encoding="utf-8") as f:
         buffer: List[str] = []
-        for row in tqdm(streamer.iter_rows(), desc="Preprocess Pass"):
+        for row in tqdm(iter_rows(INPUT_CSV), desc="Preprocess Pass"):
             tokens = tokenize(row.text, stopwords)
             if bigrams:
                 tokens = apply_bigrams(tokens, bigrams)
@@ -268,6 +247,7 @@ def main() -> None:
                 continue
             obj = {"id": row.jid, "year": row.year, "tokens": tokens}
             buffer.append(json.dumps(obj, ensure_ascii=False))
+            total_written += 1
             if len(buffer) >= BUFFER_SIZE:
                 f.write("\n".join(buffer) + "\n")
                 buffer.clear()
@@ -275,6 +255,7 @@ def main() -> None:
             f.write("\n".join(buffer) + "\n")
 
     logger.info(f"输出完成: {OUTPUT_JSONL}")
+    logger.info(f"有效文档数: {total_written:,}")
     logger.info(f"总耗时: {(time.time() - t0) / 60:.1f} 分钟")
 
 

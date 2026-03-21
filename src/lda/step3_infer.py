@@ -4,13 +4,21 @@
 """
 Step 3: LDA Topic Inference (Analytical / Folding-in)
 用贝叶斯解析法代替Gibbs sampling，速度快100倍+。
-P(topic_k | doc) ∝ alpha_k * Π P(w_i | topic_k)
+P(topic_k | doc) ∝ alpha_k * [Π P(w_i | topic_k)]^(1/n)
+
+用法：
+  python step3_infer.py          # 默认 K=100
+  python step3_infer.py --k 50   # 指定 K
+
+输入：output/processed_corpus.jsonl + output/global_lda_k{K}.bin
+输出：output/topic_results_k{K}.csv
 """
 
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
+import argparse
 import json
 import csv
 import math
@@ -22,20 +30,16 @@ import numpy as np
 import tomotopy as tp
 
 # =========================
-# Config
+# 路径配置
 # =========================
-INPUT_JSONL = Path("/Users/yu/code/code2601/TY/output/processed_corpus.jsonl")
-MODEL_PATH = Path("/Users/yu/code/code2601/TY/output/global_lda.bin")
-OUTPUT_CSV = Path("/Users/yu/code/code2601/TY/output/final_results_sample.csv")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # -> TY/
 
-K = 50
 MIN_TOKENS = 5
 EPS = 1e-12
-CHUNK_SIZE = 10000  # 无Gibbs迭代，可以用更大chunk
+CHUNK_SIZE = 10000
 
-# 噪声主题（福利/地址/模板），计算entropy/HHI时排除
-NOISE_TOPICS = np.array([21, 25, 28, 39, 46, 49])
-K_CLEAN = K - len(NOISE_TOPICS)  # 有效主题数，用于entropy归一化
+# 噪声主题（新模型训练后需人工审查确定，暂为空）
+NOISE_TOPICS = np.array([], dtype=int)
 
 # =========================
 # Worker: 解析法推断（无Gibbs sampling）
@@ -44,6 +48,8 @@ _word2idx = None
 _log_tw = None      # shape (K, V), log P(word | topic)
 _log_alpha = None   # shape (K,),   log alpha_k
 _jsd_mat = None     # shape (K, K), 主题间 Jensen-Shannon 距离矩阵
+_K_CLEAN = None     # 有效主题数（排除噪声后）
+_MODEL_PATH = None  # worker进程需要知道模型路径
 
 def _compute_jsd_matrix(tw):
     """计算主题间 Jensen-Shannon 散度矩阵（对称）"""
@@ -61,16 +67,19 @@ def _compute_jsd_matrix(tw):
 
 def _worker_init():
     """每个worker加载模型，提取词-主题矩阵，然后释放模型"""
-    global _word2idx, _log_tw, _log_alpha, _jsd_mat
+    global _word2idx, _log_tw, _log_alpha, _jsd_mat, _K_CLEAN
 
-    mdl = tp.LDAModel.load(str(MODEL_PATH))
+    mdl = tp.LDAModel.load(str(_MODEL_PATH))
+
+    # 动态读取K
+    K_model = mdl.k
+    _K_CLEAN = K_model - len(NOISE_TOPICS)
 
     # 构建词 -> 索引映射
     vocabs = list(mdl.used_vocabs)
     _word2idx = {w: i for i, w in enumerate(vocabs)}
 
     # 提取 K x V 的 log P(word|topic) 矩阵
-    K_model = mdl.k
     V = len(vocabs)
     tw = np.zeros((K_model, V), dtype=np.float32)
     for k in range(K_model):
@@ -84,18 +93,18 @@ def _worker_init():
     alpha = np.array(mdl.alpha, dtype=np.float64)
     _log_alpha = np.log(alpha + 1e-12)
 
-    # 模型本身不再需要，释放 420MB 内存
+    # 模型本身不再需要，释放内存
     del mdl
 
 
 def worker_task(lines_batch):
     """解析法计算主题分布 + 多维指标"""
-    global _word2idx, _log_tw, _log_alpha, _jsd_mat
+    global _word2idx, _log_tw, _log_alpha, _jsd_mat, _K_CLEAN
 
     results = []
     error_sample = None
-    log_k = math.log(K_CLEAN)
-    tau = 1.0 / K_CLEAN  # 显著主题阈值
+    log_k = math.log(_K_CLEAN)
+    tau = 1.0 / _K_CLEAN  # 显著主题阈值
 
     for line in lines_batch:
         try:
@@ -124,11 +133,12 @@ def worker_task(lines_batch):
             probs /= s
 
             # 排除噪声主题，重新归一化
-            probs[NOISE_TOPICS] = 0.0
-            s2 = probs.sum()
-            if s2 < 1e-30:
-                continue
-            probs /= s2
+            if len(NOISE_TOPICS) > 0:
+                probs[NOISE_TOPICS] = 0.0
+                s2 = probs.sum()
+                if s2 < 1e-30:
+                    continue
+                probs /= s2
 
             # === 指标计算 ===
             # 1. Shannon Entropy (归一化到 [0,1])
@@ -187,21 +197,36 @@ def worker_task(lines_batch):
 def _iter_chunks(jsonl_path, chunk_size):
     """流式读取 JSONL，每次 yield 一个 chunk（list of lines）"""
     buf = []
-    total = 0
     with open(jsonl_path, 'r', encoding='utf-8') as f:
         for line in f:
             buf.append(line)
             if len(buf) >= chunk_size:
-                total += len(buf)
                 yield buf
                 buf = []
     if buf:
-        total += len(buf)
         yield buf
 
 
 def main():
+    global _MODEL_PATH
+
+    parser = argparse.ArgumentParser(description="LDA Topic Inference")
+    parser.add_argument("--k", type=int, default=100, help="主题数K (default: 100)")
+    args = parser.parse_args()
+    K = args.k
+
+    INPUT_JSONL = PROJECT_ROOT / "output/processed_corpus.jsonl"
+    _MODEL_PATH = PROJECT_ROOT / f"output/global_lda_k{K}.bin"
+    OUTPUT_CSV = PROJECT_ROOT / f"output/topic_results_k{K}.csv"
+
     t0 = time.time()
+
+    if not _MODEL_PATH.exists():
+        print(f"找不到模型文件: {_MODEL_PATH}")
+        return
+    if not INPUT_JSONL.exists():
+        print(f"找不到输入文件: {INPUT_JSONL}")
+        return
 
     # 统计总行数（流式，不占内存）
     print("[1/3] 统计文档数...")
@@ -214,7 +239,7 @@ def main():
 
     # 减少 worker 数量避免 OOM（每个 worker 加载模型占 ~200MB）
     num_cores = min(4, multiprocessing.cpu_count())
-    print(f"[2/3] 启动并行: {num_cores} 核 | 解析法(无Gibbs)")
+    print(f"[2/3] 启动并行: {num_cores} 核 | K={K} | 解析法(无Gibbs)")
 
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     ctx = multiprocessing.get_context('spawn')

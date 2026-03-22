@@ -4,31 +4,20 @@
 """
 Step 4: Build Job-Level Panel for DID Regression
 
-从 skill_filtered_corpus.csv（全量骨架）出发，
-合并窗口CSV元数据、ISCO匹配、AI暴露度、行业分类、主题指标，
-输出 job_panel_k{K}.csv。
+ISCO 匹配策略（4级，按优先级）：
+  1. raw:      原始标题精确匹配 sbert_isco_lookup.csv
+  2. cleaned:  清洗标题匹配 sbert_isco_lookup.csv
+  3. alias:    人工高频标题 alias 表 (title_isco_alias.csv)
+  4. cluster:  title → cluster → dominant ISCO (纯度 ≥ 阈值 + 最小支撑量)
 
-内存策略：skill_filtered_corpus.csv / processed_corpus.jsonl / topic_results
-三个辅助文件均与窗口CSV同序（step0 → step1 → step3 保序），
-使用流式 sorted merge join，不加载到内存。
-
-行业分类：直接 import classify_industry.classify()，
-与 company_industry_map.csv 同源同规则，无口径分叉。
+主规格用 --cluster-purity 0.4（默认），稳健性用 0.3。
 
 用法：
-  python step4_build_panel.py          # 默认 K=100
-  python step4_build_panel.py --k 50   # 指定 K
+  python step4_build_panel.py                         # 默认 K=100, purity>=0.4
+  python step4_build_panel.py --cluster-purity 0.3    # 稳健性规格
+  python step4_build_panel.py --cluster-purity 0      # 无 cluster fallback
 
-输入：
-  - output/skill_filtered_corpus.csv           (全量骨架，860万行)
-  - data/processed/windows/window_*.csv        (元数据)
-  - output/processed_corpus.jsonl              (token counts)
-  - data/Heterogeneity/sbert_isco_lookup.csv   (ISCO映射)
-  - data/esco/ilo_genai_isco08_2025.csv        (AI暴露度)
-  - output/topic_results_k{K}.csv              (主题指标，左连接)
-
-输出：
-  - output/job_panel_k{K}.csv
+输出列包含 match_method / fallback_cluster_id / fallback_top1_share。
 """
 
 from __future__ import annotations
@@ -38,6 +27,7 @@ import csv
 import glob
 import json
 import os
+import pickle
 import re
 import sys
 import time
@@ -55,23 +45,27 @@ WINDOWS_DIR = PROJECT_ROOT / "data/processed/windows"
 SKILL_FILTERED_CSV = PROJECT_ROOT / "output/skill_filtered_corpus.csv"
 PROCESSED_JSONL = PROJECT_ROOT / "output/processed_corpus.jsonl"
 SBERT_LOOKUP_CSV = PROJECT_ROOT / "data/Heterogeneity/sbert_isco_lookup.csv"
+ALIAS_CSV = PROJECT_ROOT / "data/Heterogeneity/title_isco_alias.csv"
 ILO_CSV = PROJECT_ROOT / "data/esco/ilo_genai_isco08_2025.csv"
+TITLE2CLUSTER_PKL = PROJECT_ROOT / "output/clusters/title2cluster_full.pkl"
+CLUSTER_EXPOSURE_CSV = PROJECT_ROOT / "output/clusters/ai_exposure_ilo.csv"
+
+NOISE_CLUSTERS = {5, 6, 9, 43, 51, 74, -1}
+MIN_CLUSTER_MATCHED = 100  # 最小支撑量：cluster 内已匹配样本 >= 100
 
 # =========================
-# 行业分类：import classify_industry.classify()
-# 与 company_industry_map.csv 同源同规则
+# 行业分类
 # =========================
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # add src/ to path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from classify_industry import classify as _classify_raw
 
-def classify_industry(company_name: str):
-    """返回 (industry_code,) 或 ("",)，封装 classify_industry.classify()"""
+def classify_industry(company_name: str) -> str:
     code, _ = _classify_raw(company_name)
     return code if code else ""
 
 
 # =========================
-# 岗位标题清洗（用于ISCO匹配fallback，与build_isco_panel.py一致）
+# 岗位标题清洗（与 build_isco_panel.py / cluster_occupations.py 一致）
 # =========================
 def clean_title(t: str) -> str:
     t = re.sub(r'[（(][^)）]*[)）]', '', t)
@@ -83,19 +77,15 @@ def clean_title(t: str) -> str:
     return t
 
 
-# =========================
-# 窗口标签（与step0一致）
-# =========================
 def window_tag(filename: str) -> str:
     m = re.search(r"window_(\d{4})_\d{4}", filename)
     return f"w{m.group(1)}" if m else "wunk"
 
 
 # =========================
-# 流式辅助迭代器（sorted merge join 用）
+# 流式辅助迭代器
 # =========================
 class SkillFilteredIter:
-    """流式读取 skill_filtered_corpus.csv，按 job_id 推进"""
     def __init__(self, path: Path):
         self._fh = open(path, 'r', encoding='utf-8')
         self._reader = csv.DictReader(self._fh)
@@ -104,13 +94,11 @@ class SkillFilteredIter:
 
     def _advance(self):
         try:
-            row = next(self._reader)
-            self._current = row
+            self._current = next(self._reader)
         except StopIteration:
             self._current = None
 
     def get(self, job_id: str):
-        """如果当前行匹配 job_id，返回数据并推进；否则返回 None"""
         if self._current and self._current.get("job_id") == job_id:
             data = {
                 "year": self._current.get("year", ""),
@@ -127,7 +115,6 @@ class SkillFilteredIter:
 
 
 class JsonlTokenIter:
-    """流式读取 processed_corpus.jsonl，按 id 推进"""
     def __init__(self, path: Path):
         if path.exists():
             self._fh = open(path, 'r', encoding='utf-8')
@@ -153,7 +140,6 @@ class JsonlTokenIter:
                 continue
 
     def get(self, job_id: str):
-        """如果当前行匹配 job_id，返回 token count 并推进；否则返回 None"""
         if self._current_id and self._current_id == job_id:
             count = self._current_count
             self._advance()
@@ -166,7 +152,6 @@ class JsonlTokenIter:
 
 
 class TopicResultIter:
-    """流式读取 topic_results_k{K}.csv，按 id 推进"""
     COLS = [
         "entropy_score", "hhi_score", "dominant_topic_id", "dominant_topic_prob",
         "ent_effective", "rao_q", "gini", "n_sig_topics", "tail_mass_ratio"
@@ -189,7 +174,6 @@ class TopicResultIter:
             self._current = None
 
     def get(self, job_id: str):
-        """如果当前行匹配 job_id，返回指标 dict 并推进；否则返回 None"""
         if self._current and self._current.get("id") == job_id:
             data = {col: self._current.get(col, "") for col in self.COLS}
             self._advance()
@@ -207,25 +191,28 @@ class TopicResultIter:
 def main():
     parser = argparse.ArgumentParser(description="Build Job-Level Panel")
     parser.add_argument("--k", type=int, default=100, help="主题数K (default: 100)")
+    parser.add_argument("--cluster-purity", type=float, default=0.4,
+                        help="Cluster fallback 最低纯度阈值 (default: 0.4, robustness: 0.3)")
     args = parser.parse_args()
     K = args.k
+    PURITY_THRESHOLD = args.cluster_purity
 
     TOPIC_RESULTS_CSV = PROJECT_ROOT / f"output/topic_results_k{K}.csv"
     OUTPUT_CSV = PROJECT_ROOT / f"output/job_panel_k{K}.csv"
 
     t0 = time.time()
 
-    # ── 1. Load ILO AI exposure scores (tiny, ~400 entries) ──
-    print("[1/4] Loading ILO GenAI exposure scores...")
+    # ── 1. Load ILO AI exposure scores ──
+    print("[1/6] Loading ILO GenAI exposure scores...")
     ilo_scores = {}
     with open(ILO_CSV, 'r', encoding='utf-8') as f:
         for row in csv.DictReader(f):
             isco = row['isco08_4digit'].strip()
             ilo_scores[isco] = float(row['mean_score'])
-    print(f"  {len(ilo_scores)} ISCO codes with AI exposure scores")
+    print(f"  {len(ilo_scores)} ISCO codes")
 
-    # ── 2. Load SBERT ISCO lookup (raw + cleaned fallback, ~1M entries) ──
-    print("[2/4] Loading SBERT ISCO lookup...")
+    # ── 2. Load SBERT ISCO lookup (Level 1 + 2) ──
+    print("[2/6] Loading SBERT ISCO lookup...")
     raw_isco = {}
     cleaned_isco = {}
     with open(SBERT_LOOKUP_CSV, 'r', encoding='utf-8') as f:
@@ -242,18 +229,62 @@ def main():
                 cleaned_isco[ct] = isco
     print(f"  Raw: {len(raw_isco):,}, Cleaned: {len(cleaned_isco):,}")
 
-    # ── 3. Open streaming iterators for auxiliary files ──
-    print("[3/4] Opening streaming iterators...")
+    # ── 3. Load alias table (Level 3) ──
+    print("[3/6] Loading title alias table...")
+    alias_isco = {}
+    if ALIAS_CSV.exists():
+        with open(ALIAS_CSV, 'r', encoding='utf-8') as f:
+            for row in csv.DictReader(f):
+                title = row['title'].strip()
+                isco = row['isco08_4digit'].strip()
+                if isco in ilo_scores:
+                    alias_isco[title] = isco
+        print(f"  {len(alias_isco)} alias entries (filtered to ILO-available)")
+    else:
+        print(f"  WARNING: {ALIAS_CSV} not found. Alias layer disabled.")
+
+    # ── 4. Load cluster fallback (Level 4) ──
+    print(f"[4/6] Loading cluster fallback (purity >= {PURITY_THRESHOLD}, min_support >= {MIN_CLUSTER_MATCHED})...")
+    title2cluster = {}
+    cluster_isco = {}    # cid -> isco
+    cluster_purity = {}  # cid -> float
+
+    if TITLE2CLUSTER_PKL.exists() and CLUSTER_EXPOSURE_CSV.exists():
+        with open(TITLE2CLUSTER_PKL, 'rb') as f:
+            title2cluster = pickle.load(f)
+        print(f"  title2cluster: {len(title2cluster):,} unique titles")
+
+        with open(CLUSTER_EXPOSURE_CSV, 'r', encoding='utf-8-sig') as f:
+            for row in csv.DictReader(f):
+                cid = int(row['cluster_id'])
+                if cid in NOISE_CLUSTERS:
+                    continue
+                top_str = row.get('top_isco_codes', '')
+                n_matched = int(row.get('n_matched_rows', 0))
+                entries = re.findall(r'(\d{4})\(([\d.]+),\s*n=([\d,]+)\)', top_str)
+                if not entries or n_matched < MIN_CLUSTER_MATCHED:
+                    continue
+                top1_isco = entries[0][0]
+                top1_n = int(entries[0][2].replace(',', ''))
+                pur = top1_n / n_matched
+                if pur >= PURITY_THRESHOLD and top1_isco in ilo_scores:
+                    cluster_isco[cid] = top1_isco
+                    cluster_purity[cid] = pur
+
+        print(f"  {len(cluster_isco)} clusters pass threshold (purity >= {PURITY_THRESHOLD}, support >= {MIN_CLUSTER_MATCHED})")
+    else:
+        print(f"  WARNING: Cluster files not found. Cluster fallback disabled.")
+
+    # ── 5. Open streaming iterators ──
+    print("[5/6] Opening streaming iterators...")
     skill_iter = SkillFilteredIter(SKILL_FILTERED_CSV)
     corpus_iter = JsonlTokenIter(PROCESSED_JSONL)
-
     if not TOPIC_RESULTS_CSV.exists():
         print(f"  WARNING: {TOPIC_RESULTS_CSV} not found. Topic columns will be empty.")
-        print(f"  请先从服务器下载 topic_results_k{K}.csv 到 output/ 目录")
     topic_iter = TopicResultIter(TOPIC_RESULTS_CSV)
 
-    # ── 4. Process window CSVs: streaming merge join ──
-    print("[4/4] Processing window CSVs (streaming merge join)...")
+    # ── 6. Process window CSVs ──
+    print("[6/6] Processing window CSVs (streaming merge join)...")
 
     csv_files = sorted(glob.glob(str(WINDOWS_DIR / "window_*.csv")))
     csv_files = [f for f in csv_files if "stats" not in f]
@@ -262,21 +293,17 @@ def main():
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
 
     OUTPUT_HEADER = [
-        # 标识与分组
         "job_id", "year", "job_title", "isco08_4digit", "industry_code", "platform", "city",
-        # 处理变量
         "ai_exposure", "post",
-        # 样本结构变量
         "has_skill_text", "original_char_count", "skill_char_count", "skill_token_count",
-        # 主题指标
         "entropy_score", "hhi_score", "dominant_topic_id", "dominant_topic_prob",
         "ent_effective", "rao_q", "gini", "n_sig_topics", "tail_mass_ratio",
-        # 控制变量
         "salary_min", "salary_max", "edu_level", "exp_years",
+        "match_method", "fallback_cluster_id", "fallback_top1_share",
     ]
 
     total_written = 0
-    isco_match_stats = defaultdict(int)
+    match_stats = defaultdict(int)
     skill_joined = 0
     corpus_joined = 0
     topic_joined = 0
@@ -301,7 +328,6 @@ def main():
                     job_id = f"{tag}_{local_idx}"
                     local_idx += 1
 
-                    # --- 元数据（来自窗口CSV）---
                     job_title = row.get("招聘岗位", "").strip()
                     company = row.get("企业名称", "").strip()
                     city = row.get("工作城市", "").strip()
@@ -311,28 +337,47 @@ def main():
                     exp_years = row.get("要求经验", "").strip()
                     platform = row.get("来源平台", "").strip()
 
-                    # --- 行业分类（与 company_industry_map.csv 同源） ---
                     ind_code = classify_industry(company)
 
-                    # --- ISCO匹配（2级fallback）---
+                    # --- 4级 ISCO 匹配 ---
                     isco = ""
+                    match_method = "miss"
+                    fb_cid = ""
+                    fb_share = ""
+
+                    # Level 1: raw
                     if job_title in raw_isco:
                         isco = raw_isco[job_title]
-                        isco_match_stats["raw"] += 1
+                        match_method = "raw"
                     else:
                         ct = clean_title(job_title)
+                        # Level 2: cleaned
                         if ct and ct in cleaned_isco:
                             isco = cleaned_isco[ct]
-                            isco_match_stats["cleaned"] += 1
-                        else:
-                            isco_match_stats["miss"] += 1
+                            match_method = "cleaned"
+                        # Level 3: alias
+                        elif job_title in alias_isco:
+                            isco = alias_isco[job_title]
+                            match_method = "alias"
+                        elif ct and ct in alias_isco:
+                            isco = alias_isco[ct]
+                            match_method = "alias"
+                        # Level 4: cluster fallback
+                        elif ct and ct in title2cluster:
+                            cid = title2cluster[ct]
+                            if cid in cluster_isco:
+                                isco = cluster_isco[cid]
+                                match_method = "cluster"
+                                fb_cid = str(cid)
+                                fb_share = f"{cluster_purity[cid]:.3f}"
 
-                    # --- AI暴露度 ---
+                    match_stats[match_method] += 1
+
                     ai_exposure = ""
                     if isco and isco in ilo_scores:
                         ai_exposure = f"{ilo_scores[isco]:.4f}"
 
-                    # --- 流式 merge: skill_filtered_corpus ---
+                    # --- 流式 merge ---
                     sk = skill_iter.get(job_id)
                     if sk:
                         skill_joined += 1
@@ -347,18 +392,15 @@ def main():
                         skill_cc = ""
                         orig_cc = ""
 
-                    # --- 流式 merge: processed_corpus.jsonl (token count) ---
                     tc = corpus_iter.get(job_id)
                     stc = str(tc) if tc is not None else ""
                     if tc is not None:
                         corpus_joined += 1
 
-                    # --- 流式 merge: topic_results ---
                     td = topic_iter.get(job_id)
                     if td is not None:
                         topic_joined += 1
 
-                    # --- post变量 ---
                     post = ""
                     if year:
                         try:
@@ -366,7 +408,6 @@ def main():
                         except ValueError:
                             pass
 
-                    # --- 组装行 ---
                     _td = td or {}
                     out_row = [
                         job_id, year, job_title, isco, ind_code, platform, city,
@@ -382,6 +423,7 @@ def main():
                         _td.get("n_sig_topics", ""),
                         _td.get("tail_mass_ratio", ""),
                         salary_min, salary_max, edu_level, exp_years,
+                        match_method, fb_cid, fb_share,
                     ]
                     buf.append(out_row)
 
@@ -399,34 +441,30 @@ def main():
 
             print(f"    {local_idx:,} rows processed")
 
-    # 关闭流式迭代器
     skill_iter.close()
     corpus_iter.close()
     topic_iter.close()
 
     # ── 报告 ──
     elapsed = (time.time() - t0) / 60
+    total_matched = sum(v for k, v in match_stats.items() if k != "miss")
+    total_all = sum(match_stats.values())
+
     print(f"\n{'='*60}")
     print(f"Panel built: {total_written:,} rows -> {OUTPUT_CSV}")
     print(f"Time: {elapsed:.1f} min")
+    print(f"Cluster purity threshold: {PURITY_THRESHOLD}")
 
-    print(f"\nISCO matching:")
-    print(f"  Raw match:     {isco_match_stats['raw']:,}")
-    print(f"  Cleaned match: {isco_match_stats['cleaned']:,}")
-    print(f"  Miss:          {isco_match_stats['miss']:,}")
-    total_isco = isco_match_stats['raw'] + isco_match_stats['cleaned']
-    total_all = total_isco + isco_match_stats['miss']
-    if total_all > 0:
-        print(f"  Match rate:    {total_isco/total_all*100:.1f}%")
+    print(f"\nISCO matching (4-level):")
+    for method in ["raw", "cleaned", "alias", "cluster", "miss"]:
+        n = match_stats.get(method, 0)
+        print(f"  {method:10s}: {n:>10,} ({n/total_all*100:5.1f}%)")
+    print(f"  {'TOTAL':10s}: {total_matched:>10,} ({total_matched/total_all*100:5.1f}%)")
 
-    print(f"\nStreaming merge join stats:")
-    print(f"  skill_filtered joined: {skill_joined:,} (mismatch: {skill_mismatch:,})")
-    print(f"  token_counts joined:   {corpus_joined:,}")
-    print(f"  topic_results joined:  {topic_joined:,}")
-    print(f"\n  skill_token_count coverage note:")
-    print(f"    has_skill_text=1 的岗位中，仅 processed_corpus.jsonl 中的子集")
-    print(f"    (step1 tokenization ≥ {5} tokens) 有 skill_token_count 值。")
-    print(f"    intensive margin 样本要求 topic outcome 非空，该子集总有 token count。")
+    print(f"\nStreaming merge join:")
+    print(f"  skill_filtered: {skill_joined:,} (mismatch: {skill_mismatch:,})")
+    print(f"  token_counts:   {corpus_joined:,}")
+    print(f"  topic_results:  {topic_joined:,}")
 
 
 if __name__ == "__main__":

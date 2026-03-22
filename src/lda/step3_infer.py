@@ -67,9 +67,10 @@ def _compute_jsd_matrix(tw):
             jsd[j, i] = d
     return jsd
 
-def _worker_init():
+def _worker_init(model_path):
     """每个worker加载模型，提取词-主题矩阵，然后释放模型"""
-    global _word2idx, _log_tw, _log_alpha, _jsd_mat, _K_CLEAN
+    global _word2idx, _log_tw, _log_alpha, _jsd_mat, _K_CLEAN, _MODEL_PATH
+    _MODEL_PATH = model_path
 
     mdl = tp.LDAModel.load(str(_MODEL_PATH))
 
@@ -258,7 +259,7 @@ def main():
             "ent_effective", "rao_q", "gini", "n_sig_topics", "tail_mass_ratio"
         ])
 
-        with ctx.Pool(processes=num_cores, initializer=_worker_init) as pool:
+        with ctx.Pool(processes=num_cores, initializer=_worker_init, initargs=(_MODEL_PATH,)) as pool:
             for batch_res in tqdm(pool.imap(worker_task, _iter_chunks(INPUT_JSONL, CHUNK_SIZE)), total=num_chunks, desc="Inferring"):
                 if not batch_res:
                     continue
